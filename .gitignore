@@ -1,11 +1,19 @@
 # 密钥文件（绝对不能上传）
 .streamlit/secrets.toml
 
+# Node / Next.js
+node_modules/
+.next/
+out/
+
+# Environment files
+.env
+.env.local
+
 # Python
 __pycache__/
 *.py[cod]
 *.egg-info/
-.env
 venv/
 .venv/
 
