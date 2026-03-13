@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()  # 加载 .env 中的 API 密钥
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.routes import patients, auth, clinical, analytics
