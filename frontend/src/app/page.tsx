@@ -54,7 +54,7 @@ export default function HomePage() {
               </div>
               <h1 className="mb-4 text-4xl font-black md:text-5xl leading-tight">欢迎使用智医助手系统</h1>
               <p className="text-lg text-slate-300">
-                当前已接入全球 850+ 医学数据库与 1.2 亿份匿名病例，深度学习引擎正在为您的每一份诊断保驾护航。
+                基于 OC × 百川 三阶辩论引擎，整合 ClinPGx 药物基因组学数据库、OpenFDA 药物相互作用数据、CPIC 临床指南及 331 例真实镇痛病历，提供结构化镇痛处方辅助决策。
               </p>
               <div className="mt-8 flex flex-wrap gap-4">
                 <Link href="/clinical">
@@ -71,14 +71,14 @@ export default function HomePage() {
             </div>
             <div className="grid grid-cols-2 gap-4 w-full md:w-auto">
               <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-md border border-white/5">
-                <p className="text-xs text-slate-400">今日辅助诊断</p>
-                <p className="text-2xl font-bold">2,142</p>
-                <p className="text-xs text-accent">+14.2%</p>
+                <p className="text-xs text-slate-400">知识技能库</p>
+                <p className="text-2xl font-bold">5 项</p>
+                <p className="text-xs text-accent">ClinPGx · FDA · ENT</p>
               </div>
               <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-md border border-white/5">
-                <p className="text-xs text-slate-400">平均精度</p>
-                <p className="text-2xl font-bold">99.8%</p>
-                <p className="text-xs text-accent">Stable</p>
+                <p className="text-xs text-slate-400">双模型辩论</p>
+                <p className="text-2xl font-bold">3 阶段</p>
+                <p className="text-xs text-accent">MiniMax × 百川</p>
               </div>
             </div>
           </div>
@@ -102,7 +102,7 @@ export default function HomePage() {
               </div>
               <h3 className="mb-3 text-2xl font-bold">虚拟病例训练入口</h3>
               <p className="mb-6 text-slate-500 dark:text-slate-400">
-                基于 GPT-5 医疗专供模型构建的 50,000+ 标准化病人，支持多轮问诊、体检开单及预后推演。
+                基于大语言模型的标准化病人模拟系统，支持多轮问诊、体检开单及预后推演训练。
               </p>
               <div className="absolute right-8 bottom-8">
                 <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:bg-accent group-hover:text-primary transition-colors">
