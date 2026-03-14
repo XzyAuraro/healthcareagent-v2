@@ -63,6 +63,7 @@ export default function ClinicalPage() {
   // UI 状态
   const [chatInput, setChatInput] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
+  const [pollingSeconds, setPollingSeconds] = useState(0);
   const [result, setResult] = useState<DebateResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -72,39 +73,68 @@ export default function ClinicalPage() {
     setErrorMessage('');
     if (!canAnalyze) return;
     setAnalyzing(true);
+    setPollingSeconds(0);
+
+    const payload = JSON.stringify({
+      age: Number.parseInt(age, 10) || 50,
+      gender,
+      diagnosis,
+      department,
+      pain_score: Number.parseInt(painScore, 10) || 5,
+      pain_type: painType,
+      current_opioid: currentOpioid || '无',
+      current_dose: Number.parseFloat(currentDose) || 0,
+      current_freq: currentFreq || '无',
+      plan_drug: planDrug || '无',
+      plan_dose: Number.parseFloat(planDose) || 0,
+      plan_freq: Number.parseInt(planFreq, 10) || 2,
+      mme_day: Number.parseFloat(mmeDay) || 0,
+      ort_score: Number.parseInt(ortScore, 10) || 0,
+      ort_level: ortLevel,
+      comorbidities: comorbidities || '无',
+      allergies: allergies || '无',
+      adverse_hist: adverseHist || '无',
+      extra_notes: extraNotes || '',
+    });
+
     try {
-      const response = await fetch('/api/clinical/analyze', {
+      // Step 1: 提交任务，立即返回 job_id（< 1秒，不会触发 Cloudflare 超时）
+      const submitRes = await fetch('/api/clinical/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          age: Number.parseInt(age, 10) || 50,
-          gender,
-          diagnosis,
-          department,
-          pain_score: Number.parseInt(painScore, 10) || 5,
-          pain_type: painType,
-          current_opioid: currentOpioid || '无',
-          current_dose: Number.parseFloat(currentDose) || 0,
-          current_freq: currentFreq || '无',
-          plan_drug: planDrug || '无',
-          plan_dose: Number.parseFloat(planDose) || 0,
-          plan_freq: Number.parseInt(planFreq, 10) || 2,
-          mme_day: Number.parseFloat(mmeDay) || 0,
-          ort_score: Number.parseInt(ortScore, 10) || 0,
-          ort_level: ortLevel,
-          comorbidities: comorbidities || '无',
-          allergies: allergies || '无',
-          adverse_hist: adverseHist || '无',
-          extra_notes: extraNotes || '',
-        }),
+        body: payload,
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      if (!submitRes.ok) {
+        throw new Error(`提交失败 HTTP ${submitRes.status}`);
       }
 
-      const data = (await response.json()) as DebateResponse;
-      setResult(data);
+      const { job_id } = (await submitRes.json()) as { job_id: string };
+
+      // Step 2: 轮询任务状态，每 3 秒一次
+      const startTime = Date.now();
+      const maxWait = 300_000; // 5 分钟上限
+
+      while (Date.now() - startTime < maxWait) {
+        await new Promise((r) => setTimeout(r, 3000));
+        setPollingSeconds(Math.floor((Date.now() - startTime) / 1000));
+
+        const pollRes = await fetch(`/api/clinical/job/${job_id}`);
+        if (!pollRes.ok) continue;
+
+        const job = (await pollRes.json()) as { status: string } & Partial<DebateResponse> & { error?: string };
+
+        if (job.status === 'done') {
+          setResult(job as DebateResponse);
+          return;
+        }
+        if (job.status === 'error') {
+          throw new Error(job.error ?? '后端分析失败');
+        }
+        // status === 'running'，继续轮询
+      }
+
+      throw new Error('等待超时（5分钟），请重试');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setErrorMessage(`分析失败，请检查后端服务。${message}`);
@@ -396,7 +426,9 @@ export default function ClinicalPage() {
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-white shadow-lg shadow-primary/20 transition hover:shadow-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span className="material-symbols-outlined text-lg">analytics</span>
-              {analyzing ? 'AI 联合会诊中...' : '触发 AI 联合会诊'}
+              {analyzing
+                ? `AI 联合会诊中… ${pollingSeconds > 0 ? `(${pollingSeconds}s)` : ''}`
+                : '触发 AI 联合会诊'}
             </button>
             {errorMessage && (
               <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{errorMessage}</p>

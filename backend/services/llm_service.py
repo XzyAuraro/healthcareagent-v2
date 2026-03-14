@@ -86,7 +86,7 @@ def ask_llm_debate(
     baichuan_client = get_baichuan_client()
 
     # Step 1：OC 初步答案
-    oc_answer = ask_llm(oc_client, oc_model, system_prompt, user_prompt)
+    oc_answer = ask_llm(oc_client, oc_model, system_prompt, user_prompt, max_tokens=500)
     if not oc_answer or not baichuan_client:
         return oc_answer, "", oc_answer
 
@@ -108,7 +108,7 @@ def ask_llm_debate(
                 {"role": "user", "content": baichuan_prompt},
             ],
             temperature=0.2,
-            max_tokens=800,
+            max_tokens=400,
         )
         baichuan_review = (rsp.choices[0].message.content or "").strip()
     except Exception:
@@ -126,5 +126,6 @@ def ask_llm_debate(
         oc_model,
         "你是临床决策辅助系统，请综合病例数据库与医学专家意见，给出最终临床建议。",
         consensus_prompt,
+        max_tokens=500,
     )
     return oc_answer, baichuan_review, consensus or oc_answer

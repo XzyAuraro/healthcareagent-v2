@@ -3,12 +3,19 @@
 """
 from __future__ import annotations
 
-from typing import List, Optional
+import asyncio
+import concurrent.futures
+import uuid
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from services.llm_service import ask_llm_debate, ask_llm, get_oc_client
+
+# 异步任务池与任务字典（进程内存，重启后清空）
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+_jobs: Dict[str, dict] = {}
 
 router = APIRouter()
 
@@ -113,20 +120,24 @@ def analyze_case(req: ClinicalRequest):
     """
     临床病例 AI 联合会诊：OC × 百川 三阶 Debate
     """
-    summary = _build_summary(req)
-    system_prompt = (
-        "你是镇痛类药物临床助手，请以结构化格式输出：处方建议、备选方案、风险提示、复评计划。"
-    )
-
-    oc_answer, baichuan_review, consensus = ask_llm_debate(system_prompt, summary)
-
-    return DebateResponse(
-        oc_answer=oc_answer,
-        baichuan_review=baichuan_review,
-        consensus=consensus,
-        risk_warning=_risk_warning(req),
-        mme_warning=_mme_warning(req.mme_day),
-    )
+    import traceback
+    from fastapi import HTTPException
+    try:
+        summary = _build_summary(req)
+        system_prompt = (
+            "你是镇痛类药物临床助手，请以结构化格式输出：处方建议、备选方案、风险提示、复评计划。"
+        )
+        oc_answer, baichuan_review, consensus = ask_llm_debate(system_prompt, summary)
+        return DebateResponse(
+            oc_answer=oc_answer,
+            baichuan_review=baichuan_review,
+            consensus=consensus,
+            risk_warning=_risk_warning(req),
+            mme_warning=_mme_warning(req.mme_day),
+        )
+    except Exception as exc:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/consult")
@@ -146,6 +157,53 @@ def consult(discuss_input: str, summary: str):
         prompt,
     )
     return {"consult_text": result}
+
+
+@router.post("/submit")
+async def submit_case(req: ClinicalRequest):
+    """
+    异步提交：立即返回 job_id，后台运行三阶 Debate
+    解决 Cloudflare Tunnel 长请求超时问题
+    """
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {"status": "running"}
+
+    loop = asyncio.get_event_loop()
+
+    async def _run():
+        try:
+            summary = _build_summary(req)
+            system_prompt = (
+                "你是镇痛类药物临床助手，请以结构化格式输出：处方建议、备选方案、风险提示、复评计划。"
+            )
+            oc_answer, baichuan_review, consensus = await loop.run_in_executor(
+                _executor, lambda: ask_llm_debate(system_prompt, summary)
+            )
+            _jobs[job_id] = {
+                "status": "done",
+                "oc_answer": oc_answer,
+                "baichuan_review": baichuan_review,
+                "consensus": consensus,
+                "risk_warning": _risk_warning(req),
+                "mme_warning": _mme_warning(req.mme_day),
+            }
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            _jobs[job_id] = {"status": "error", "error": str(exc)}
+
+    asyncio.create_task(_run())
+    return {"job_id": job_id}
+
+
+@router.get("/job/{job_id}")
+def get_job_status(job_id: str):
+    """轮询任务状态"""
+    from fastapi import HTTPException
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 @router.get("/health")
