@@ -30,6 +30,18 @@ class GenerateRequest(BaseModel):
     department: str = "cardiology"
 
 
+class CaseGenerateRequest(BaseModel):
+    difficulty: str = "intermediate"
+    department: str = "cardiology"
+
+
+class CaseEvaluateRequest(BaseModel):
+    case_id: str
+    trainee_diagnosis: str = ""
+    prescriptions: List[PrescriptionItem] = []
+    notes: str = ""   # 学员补充的临床推理
+
+
 class ChatRequest(BaseModel):
     case_id: str
     message: str
@@ -274,6 +286,161 @@ async def evaluate_training(req: EvaluateRequest):
                         messages=[
                             {"role": "system", "content": "你是临床医学教育专家，擅长处方安全与合理用药评估，请给出简洁精准的改进建议。"},
                             {"role": "user", "content": bc_user},
+                        ],
+                        temperature=0.2,
+                        max_tokens=150,
+                    )
+                    bc_comment = (rsp.choices[0].message.content or "").strip()
+                except Exception:
+                    pass
+
+            _jobs[job_id] = {
+                "status": "done",
+                "oc_eval": oc_eval,
+                "bc_comment": bc_comment,
+                "correct_diagnosis": diagnosis,
+            }
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            _jobs[job_id] = {"status": "error", "error": str(exc)}
+
+    asyncio.create_task(_run())
+    return {"job_id": job_id}
+
+
+# ── 模式一：病例分析 ─ 生成完整病例摘要（异步）────────────────────────────────
+
+@router.post("/case-generate")
+async def case_generate(req: CaseGenerateRequest):
+    """生成完整结构化病例摘要供学员阅读分析"""
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {"status": "running"}
+    loop = asyncio.get_event_loop()
+
+    async def _run():
+        try:
+            client, model = get_oc_client()
+            dept = DEPARTMENT_MAP.get(req.department, req.department)
+            diff = DIFFICULTY_MAP.get(req.difficulty, req.difficulty)
+
+            prompt = (
+                f"请为医学生生成一个{dept}完整标准化病例，难度：{diff}。\n\n"
+                "严格按以下 JSON 格式输出，不要添加任何额外说明：\n"
+                "{\n"
+                '  "chief_complaint": "主诉（1句，含时间）",\n'
+                '  "present_illness": "现病史（150字以内，症状发展、加重/缓解因素、伴随症状）",\n'
+                '  "past_history": "既往史（基础疾病、手术史、药物史、过敏史）",\n'
+                '  "physical_exam": "体格检查（生命体征 + 阳性体征，80字以内）",\n'
+                '  "lab_results": "辅助检查（血常规、生化、心电图等关键结果，80字以内）",\n'
+                '  "imaging": "影像学（关键发现，无则填空字符串）",\n'
+                '  "diagnosis": "正确诊断（含主次诊断，仅系统使用）",\n'
+                '  "key_points": ["诊断依据1", "依据2", "依据3"],\n'
+                '  "scoring_criteria": "评分重点提示（如：需识别X特征，处方需注意Y）"\n'
+                "}"
+            )
+
+            raw = ask_llm(
+                client, model,
+                f"你是{dept}医学教育系统，负责生成完整标准化病例。请严格按JSON格式输出。",
+                prompt,
+                max_tokens=600,
+            )
+
+            m = re.search(r'\{[\s\S]*\}', raw)
+            if not m:
+                raise ValueError(f"无法解析病例 JSON：{raw}")
+            case_data = json.loads(m.group())
+
+            case_id = str(uuid.uuid4())
+            _cases[case_id] = {**case_data, "department": dept, "difficulty": req.difficulty, "mode": "case_analysis"}
+
+            _jobs[job_id] = {
+                "status": "done",
+                "case_id": case_id,
+                "chief_complaint": case_data.get("chief_complaint", ""),
+                "present_illness": case_data.get("present_illness", ""),
+                "past_history": case_data.get("past_history", ""),
+                "physical_exam": case_data.get("physical_exam", ""),
+                "lab_results": case_data.get("lab_results", ""),
+                "imaging": case_data.get("imaging", ""),
+                "department": dept,
+                "difficulty": req.difficulty,
+            }
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            _jobs[job_id] = {"status": "error", "error": str(exc)}
+
+    asyncio.create_task(_run())
+    return {"job_id": job_id}
+
+
+# ── 模式一：病例分析 ─ 评分（异步）────────────────────────────────────────────
+
+@router.post("/case-evaluate")
+async def case_evaluate(req: CaseEvaluateRequest):
+    """评估学员的诊断 + 处方（OC 主评 + 百川药物安全审查）"""
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {"status": "running"}
+    loop = asyncio.get_event_loop()
+
+    async def _run():
+        try:
+            case = _cases.get(req.case_id, {})
+            diagnosis = case.get("diagnosis", "未知")
+            key_points = ", ".join(case.get("key_points", []))
+            scoring_criteria = case.get("scoring_criteria", "")
+            dept = case.get("department", "")
+
+            rx_text = ""
+            if req.prescriptions:
+                lines = []
+                for i, rx in enumerate(req.prescriptions):
+                    line = f"{i+1}. {rx.drug} {rx.dose} {rx.frequency} {rx.route}"
+                    if rx.duration: line += f" 疗程：{rx.duration}"
+                    if rx.rationale: line += f" 依据：{rx.rationale}"
+                    lines.append(line)
+                rx_text = "\n".join(lines)
+
+            eval_prompt = (
+                f"【正确诊断】{diagnosis}\n"
+                f"【诊断依据要点】{key_points}\n"
+                f"【评分重点】{scoring_criteria}\n\n"
+                f"【学员诊断】{req.trainee_diagnosis or '未给出'}\n"
+                f"【学员处方】\n{rx_text or '未开具处方'}\n"
+                f"【学员推理补充】{req.notes or '无'}\n\n"
+                "请从三个维度评分（总分100分）：\n\n"
+                "【一、诊断准确性（40分）】\n"
+                "主诊断正确（20分）、识别关键依据（10分）、鉴别诊断（10分）\n\n"
+                "【二、治疗方案合理性（40分）】\n"
+                "药物选择（15分）、剂量安全（10分）、禁忌/相互作用（10分）、"
+                "阿片类专项如适用：MME+监测计划（5分）\n\n"
+                "【三、临床推理完整性（20分）】\n"
+                "病史运用（10分）、辅助检查解读（10分）\n\n"
+                "格式：先「总分 X/100」，再逐项得分说明，最后一段综合优化建议。"
+            )
+
+            client, model = get_oc_client()
+            oc_eval = await loop.run_in_executor(
+                _executor,
+                lambda: ask_llm(
+                    client, model,
+                    f"你是{dept}医学教育考官，请专业评估住院医师的病例分析与处方方案。",
+                    eval_prompt,
+                    max_tokens=600,
+                ),
+            )
+
+            bc_comment = ""
+            baichuan_client = get_baichuan_client()
+            if baichuan_client and req.prescriptions:
+                try:
+                    rsp = baichuan_client.chat.completions.create(
+                        model="Baichuan4-Turbo",
+                        messages=[
+                            {"role": "system", "content": "你是临床药学专家，擅长处方安全评估，尤其关注阿片类药物合理使用。给出最关键的一条用药安全建议，80字以内。"},
+                            {"role": "user", "content": f"正确诊断：{diagnosis}\n学员处方：{rx_text}\n请给出最关键的用药安全建议。"},
                         ],
                         temperature=0.2,
                         max_tokens=150,
