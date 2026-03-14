@@ -36,10 +36,20 @@ class ChatRequest(BaseModel):
     history: List[dict] = []  # [{"role": "trainee"|"patient", "content": "..."}]
 
 
+class PrescriptionItem(BaseModel):
+    drug: str
+    dose: str
+    frequency: str
+    route: str = "口服"
+    duration: str = ""
+    rationale: str = ""
+
+
 class EvaluateRequest(BaseModel):
     case_id: str
     history: List[dict]
     trainee_diagnosis: Optional[str] = ""
+    prescriptions: List[PrescriptionItem] = []
 
 
 # ── 映射表 ───────────────────────────────────────────────────────────────────
@@ -184,19 +194,51 @@ async def evaluate_training(req: EvaluateRequest):
                 for t in req.history
             ])
 
+            # ── 问诊评分部分 ──
             eval_prompt = (
                 f"正确诊断：{diagnosis}\n"
                 f"关键鉴别要点：{key_points}\n\n"
                 f"学员问诊记录：\n{history_text}\n\n"
                 f"学员给出的诊断：{req.trainee_diagnosis or '未给出'}\n\n"
-                "请从以下 5 个维度评估（各20分，总分100分）：\n"
+                "【一、问诊评分（100分）】\n"
+                "请从以下 5 个维度评估（各20分）：\n"
                 "1. 问诊系统性（主诉/现病史/既往史/用药史等覆盖情况）\n"
                 "2. 鉴别诊断思路（是否抓住关键鉴别问题）\n"
                 "3. 诊断准确性\n"
                 "4. 问诊效率（抓重点，避免无效提问）\n"
-                "5. 沟通技巧（关注患者情绪，表达清晰）\n\n"
-                "格式：先给出「总分 X/100」，再逐项说明得分与改进建议。"
+                "5. 沟通技巧（关注患者情绪，表达清晰）\n"
+                "格式：先给出「问诊总分 X/100」，再逐项说明得分。"
             )
+
+            # ── 处方评分部分（如有）──
+            rx_text = ""  # 供百川引用
+            rx_eval_prompt = ""
+            if req.prescriptions:
+                rx_lines = []
+                for i, rx in enumerate(req.prescriptions):
+                    line = f"{i+1}. {rx.drug}  {rx.dose}  {rx.frequency}  {rx.route}"
+                    if rx.duration:
+                        line += f"  疗程：{rx.duration}"
+                    if rx.rationale:
+                        line += f"  依据：{rx.rationale}"
+                    rx_lines.append(line)
+                rx_text = "\n".join(rx_lines)
+
+                rx_eval_prompt = (
+                    f"\n\n【二、处方评分（100分）】\n"
+                    f"患者背景：{case.get('patient_background', '')}，"
+                    f"诊断：{diagnosis}\n"
+                    f"学员开具处方：\n{rx_text}\n\n"
+                    "请从以下 5 个维度评估处方合理性（各20分）：\n"
+                    "1. 药物选择适应症（适应证是否匹配诊断）\n"
+                    "2. 剂量安全性（是否在推荐范围内）\n"
+                    "3. 禁忌症与过敏史（结合患者既往史）\n"
+                    "4. 阿片类专项（如涉及：MME是否合理、是否提及监测计划、ORT风险评估）；"
+                    "   非阿片类药物：药物相互作用是否安全\n"
+                    "5. 处方完整性（疗程、频次、给药途径是否合理）\n"
+                    "格式：先给出「处方总分 X/100」，再逐项说明，最后给出一句总体建议。"
+                )
+                eval_prompt += rx_eval_prompt
 
             client, model = get_oc_client()
             oc_eval = await loop.run_in_executor(
@@ -209,19 +251,32 @@ async def evaluate_training(req: EvaluateRequest):
                 ),
             )
 
-            # 百川补充点评（50字以内，只补最重要的一点）
+            # 百川补充点评（重点关注处方安全，80字以内）
             bc_comment = ""
             baichuan_client = get_baichuan_client()
             if baichuan_client:
                 try:
+                    has_rx = bool(req.prescriptions)
+                    bc_focus = (
+                        "处方安全性（尤其是阿片类剂量、禁忌症、药物相互作用）" if has_rx
+                        else "问诊与诊断思路"
+                    )
+                    bc_user = (
+                        f"正确诊断：{diagnosis}\n"
+                        f"OC评分报告：{oc_eval}\n"
+                    )
+                    if has_rx:
+                        bc_user += f"学员处方：{rx_text}\n"
+                    bc_user += f"请重点针对【{bc_focus}】补充最关键的一条建议，80字以内。"
+
                     rsp = baichuan_client.chat.completions.create(
                         model="Baichuan4-Turbo",
                         messages=[
-                            {"role": "system", "content": "你是医学教育专家，请用50字以内补充最关键的一条改进建议。"},
-                            {"role": "user", "content": f"正确诊断：{diagnosis}\n评分报告：{oc_eval}\n请补充最重要的一条建议。"},
+                            {"role": "system", "content": "你是临床医学教育专家，擅长处方安全与合理用药评估，请给出简洁精准的改进建议。"},
+                            {"role": "user", "content": bc_user},
                         ],
                         temperature=0.2,
-                        max_tokens=100,
+                        max_tokens=150,
                     )
                     bc_comment = (rsp.choices[0].message.content or "").strip()
                 except Exception:

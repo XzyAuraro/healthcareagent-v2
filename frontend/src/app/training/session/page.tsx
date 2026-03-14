@@ -20,6 +20,13 @@ type Phase =
   | { type: 'evaluating' }
   | { type: 'done'; result: EvalResult };
 
+type PrescriptionItem = {
+  drug: string; dose: string; frequency: string; route: string; duration: string; rationale: string;
+};
+const EMPTY_RX = (): PrescriptionItem => ({
+  drug: '', dose: '', frequency: 'bid', route: '口服', duration: '', rationale: '',
+});
+
 export default function TrainingSessionPage() {
   const params = useSearchParams();
   const difficulty = params.get('difficulty') ?? 'intermediate';
@@ -33,6 +40,7 @@ export default function TrainingSessionPage() {
   const [sending, setSending] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [traineeInput, setTraineeInput] = useState('');
+  const [prescriptions, setPrescriptions] = useState<PrescriptionItem[]>([EMPTY_RX()]);
   const [showDiagInput, setShowDiagInput] = useState(false);
   const [evalSeconds, setEvalSeconds] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -111,7 +119,12 @@ export default function TrainingSessionPage() {
       const res = await fetch('/api/training/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ case_id: caseId, history: messages, trainee_diagnosis: traineeInput }),
+        body: JSON.stringify({
+          case_id: caseId,
+          history: messages,
+          trainee_diagnosis: traineeInput,
+          prescriptions: prescriptions.filter((rx) => rx.drug.trim()),
+        }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const { job_id } = (await res.json()) as { job_id: string };
@@ -185,7 +198,7 @@ export default function TrainingSessionPage() {
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <h3 className="mb-3 flex items-center gap-2 font-bold">
                 <span className="material-symbols-outlined text-primary">assessment</span>
-                OC 综合评分报告
+                AI 综合评分报告
               </h3>
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">
                 {phase.result.oc_eval}
@@ -256,28 +269,115 @@ export default function TrainingSessionPage() {
           <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
             <div className="mx-auto max-w-2xl space-y-2">
               {showDiagInput && (
-                <div className="flex items-center gap-2">
-                  <input
-                    className="flex-1 rounded-xl border-slate-200 text-sm dark:border-slate-700 dark:bg-slate-800"
-                    placeholder="填写你的诊断意见（可选）..."
-                    value={traineeInput}
-                    onChange={(e) => setTraineeInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') startEvaluate(); }}
-                  />
-                  <button
-                    type="button"
-                    onClick={startEvaluate}
-                    className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700"
-                  >
-                    提交评分
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowDiagInput(false)}
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-500 hover:border-slate-400"
-                  >
-                    取消
-                  </button>
+                <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-4 dark:bg-primary/10">
+                  {/* 诊断 */}
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">你的诊断</label>
+                    <input
+                      className="mt-1 w-full rounded-lg border-slate-200 text-sm dark:border-slate-700 dark:bg-slate-800"
+                      placeholder="例：慢性心力衰竭急性加重（NYHA III级）"
+                      value={traineeInput}
+                      onChange={(e) => setTraineeInput(e.target.value)}
+                    />
+                  </div>
+
+                  {/* 处方 */}
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                        开具处方（可选，不填则跳过处方评分）
+                      </label>
+                      {prescriptions.length < 4 && (
+                        <button
+                          type="button"
+                          onClick={() => setPrescriptions([...prescriptions, EMPTY_RX()])}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          + 添加药物
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      {prescriptions.map((rx, idx) => (
+                        <div key={idx} className="rounded-lg border border-slate-200 bg-white p-3 space-y-2 dark:border-slate-700 dark:bg-slate-800">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-400 w-4">{idx + 1}.</span>
+                            <input
+                              className="flex-1 rounded border-slate-200 text-xs dark:border-slate-700 dark:bg-slate-900"
+                              placeholder="药品名称（如：吗啡缓释片）"
+                              value={rx.drug}
+                              onChange={(e) => {
+                                const next = [...prescriptions];
+                                next[idx] = { ...rx, drug: e.target.value };
+                                setPrescriptions(next);
+                              }}
+                            />
+                            {prescriptions.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => setPrescriptions(prescriptions.filter((_, i) => i !== idx))}
+                                className="text-slate-400 hover:text-red-500"
+                              >
+                                <span className="material-symbols-outlined text-sm">close</span>
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-4 gap-2">
+                            <input
+                              className="rounded border-slate-200 text-xs dark:border-slate-700 dark:bg-slate-900"
+                              placeholder="剂量（如：30mg）"
+                              value={rx.dose}
+                              onChange={(e) => { const n=[...prescriptions]; n[idx]={...rx,dose:e.target.value}; setPrescriptions(n); }}
+                            />
+                            <select
+                              className="rounded border-slate-200 text-xs dark:border-slate-700 dark:bg-slate-900"
+                              value={rx.frequency}
+                              onChange={(e) => { const n=[...prescriptions]; n[idx]={...rx,frequency:e.target.value}; setPrescriptions(n); }}
+                            >
+                              {['qd','bid','tid','qid','q8h','q12h','prn','st'].map(f=><option key={f}>{f}</option>)}
+                            </select>
+                            <select
+                              className="rounded border-slate-200 text-xs dark:border-slate-700 dark:bg-slate-900"
+                              value={rx.route}
+                              onChange={(e) => { const n=[...prescriptions]; n[idx]={...rx,route:e.target.value}; setPrescriptions(n); }}
+                            >
+                              {['口服','静脉','肌注','皮下','舌下','透皮','吸入'].map(r=><option key={r}>{r}</option>)}
+                            </select>
+                            <input
+                              className="rounded border-slate-200 text-xs dark:border-slate-700 dark:bg-slate-900"
+                              placeholder="疗程"
+                              value={rx.duration}
+                              onChange={(e) => { const n=[...prescriptions]; n[idx]={...rx,duration:e.target.value}; setPrescriptions(n); }}
+                            />
+                          </div>
+                          <input
+                            className="w-full rounded border-slate-200 text-xs dark:border-slate-700 dark:bg-slate-900"
+                            placeholder="用药依据 / 注意事项（选填）"
+                            value={rx.rationale}
+                            onChange={(e) => { const n=[...prescriptions]; n[idx]={...rx,rationale:e.target.value}; setPrescriptions(n); }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={startEvaluate}
+                      className="flex-1 rounded-xl bg-emerald-600 py-2 text-sm font-bold text-white hover:bg-emerald-700"
+                    >
+                      提交评分
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowDiagInput(false)}
+                      className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-500 hover:border-slate-400"
+                    >
+                      取消
+                    </button>
+                  </div>
                 </div>
               )}
               <div className="flex items-center gap-2">
