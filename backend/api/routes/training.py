@@ -1,0 +1,242 @@
+"""
+虚拟病例训练路由
+- 病例生成 + 患者角色扮演：仅用 OC（多轮对话要快）
+- 最终评分：OC + 百川各评一次（只在结束时调用）
+"""
+from __future__ import annotations
+
+import asyncio
+import concurrent.futures
+import json
+import re
+import uuid
+from typing import Dict, List, Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from services.llm_service import ask_llm, get_oc_client, get_baichuan_client
+
+router = APIRouter()
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+_jobs: Dict[str, dict] = {}
+_cases: Dict[str, dict] = {}
+
+
+# ── 请求模型 ─────────────────────────────────────────────────────────────────
+
+class GenerateRequest(BaseModel):
+    difficulty: str = "intermediate"   # beginner / intermediate / advanced
+    department: str = "cardiology"
+
+
+class ChatRequest(BaseModel):
+    case_id: str
+    message: str
+    history: List[dict] = []  # [{"role": "trainee"|"patient", "content": "..."}]
+
+
+class EvaluateRequest(BaseModel):
+    case_id: str
+    history: List[dict]
+    trainee_diagnosis: Optional[str] = ""
+
+
+# ── 映射表 ───────────────────────────────────────────────────────────────────
+
+DIFFICULTY_MAP = {
+    "beginner":     "初级（实习医生，病例典型，症状明确）",
+    "intermediate": "中级（住院医师，病例复杂，需综合分析）",
+    "advanced":     "高级（主治以上，疑难杂症，多系统受累）",
+}
+
+DEPARTMENT_MAP = {
+    "cardiology": "心内科",
+    "neurology":  "神经内科",
+    "oncology":   "肿瘤科",
+    "emergency":  "急诊科",
+    "pain":       "疼痛科",
+}
+
+
+# ── 病例生成（异步）─────────────────────────────────────────────────────────
+
+@router.post("/generate")
+async def generate_case(req: GenerateRequest):
+    """异步生成虚拟病例，立即返回 job_id"""
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {"status": "running"}
+
+    loop = asyncio.get_event_loop()
+
+    async def _run():
+        try:
+            client, model = get_oc_client()
+            dept = DEPARTMENT_MAP.get(req.department, req.department)
+            diff = DIFFICULTY_MAP.get(req.difficulty, req.difficulty)
+
+            prompt = (
+                f"请为医学生生成一个{dept}虚拟训练病例，难度：{diff}。\n\n"
+                "严格按以下 JSON 格式输出，不要添加任何额外说明：\n"
+                "{\n"
+                '  "chief_complaint": "主诉（1句话）",\n'
+                '  "patient_intro": "患者向医生的自我介绍（第一人称，40字以内，只说主诉和基本情况，不透露诊断）",\n'
+                '  "patient_background": "年龄、性别、职业、基础病（供AI扮演参考，不展示给学员）",\n'
+                '  "diagnosis": "正确诊断（仅供系统评分，不展示给学员）",\n'
+                '  "key_points": ["鉴别诊断要点1", "要点2", "要点3"]\n'
+                "}"
+            )
+
+            raw = ask_llm(
+                client, model,
+                f"你是医学教育系统，负责生成{dept}标准化训练病例。请严格按JSON格式输出。",
+                prompt,
+                max_tokens=400,
+            )
+
+            m = re.search(r'\{[\s\S]*\}', raw)
+            if not m:
+                raise ValueError(f"无法解析病例 JSON：{raw}")
+            case_data = json.loads(m.group())
+
+            case_id = str(uuid.uuid4())
+            _cases[case_id] = {**case_data, "department": dept, "difficulty": req.difficulty}
+
+            _jobs[job_id] = {
+                "status": "done",
+                "case_id": case_id,
+                "chief_complaint": case_data.get("chief_complaint", ""),
+                "patient_intro": case_data.get("patient_intro", ""),
+                "department": dept,
+                "difficulty": req.difficulty,
+            }
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            _jobs[job_id] = {"status": "error", "error": str(exc)}
+
+    asyncio.create_task(_run())
+    return {"job_id": job_id}
+
+
+@router.get("/job/{job_id}")
+def get_job(job_id: str):
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+# ── 患者角色扮演（同步，快速）────────────────────────────────────────────────
+
+@router.post("/chat")
+def training_chat(req: ChatRequest):
+    """OC 扮演患者回应医生问诊（同步，max_tokens=150，通常 3-5 秒）"""
+    case = _cases.get(req.case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    client, model = get_oc_client()
+
+    # 最近 6 轮历史
+    history_text = ""
+    for turn in req.history[-6:]:
+        role = "医生" if turn["role"] == "trainee" else "患者"
+        history_text += f"{role}：{turn['content']}\n"
+
+    system_prompt = (
+        f"你正在扮演一位真实患者，供医学生练习问诊。\n"
+        f"患者背景：{case.get('patient_background', '')}\n"
+        f"你的真实病情（绝对不可主动说出诊断名称）：患有{case.get('diagnosis', '')}相关症状\n\n"
+        "扮演规则：\n"
+        "1. 第一人称，像真实患者一样回答，语气自然口语\n"
+        "2. 只回答医生问的问题，不主动透露诊断\n"
+        "3. 没有的症状如实说没有\n"
+        "4. 回答控制在 40 字以内，简洁\n"
+        "5. 可以表现出紧张、疼痛等情绪"
+    )
+
+    user_prompt = f"{history_text}医生：{req.message}\n患者："
+
+    response = ask_llm(client, model, system_prompt, user_prompt, max_tokens=150)
+    return {"response": response}
+
+
+# ── 最终评分（异步，OC + 百川各一次）────────────────────────────────────────
+
+@router.post("/evaluate")
+async def evaluate_training(req: EvaluateRequest):
+    """训练结束后评分：OC 主评 + 百川补充建议（仅调一次）"""
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {"status": "running"}
+
+    loop = asyncio.get_event_loop()
+
+    async def _run():
+        try:
+            case = _cases.get(req.case_id, {})
+            diagnosis = case.get("diagnosis", "未知")
+            key_points = ", ".join(case.get("key_points", []))
+            dept = case.get("department", "")
+
+            history_text = "\n".join([
+                f"{'医生' if t['role'] == 'trainee' else '患者'}：{t['content']}"
+                for t in req.history
+            ])
+
+            eval_prompt = (
+                f"正确诊断：{diagnosis}\n"
+                f"关键鉴别要点：{key_points}\n\n"
+                f"学员问诊记录：\n{history_text}\n\n"
+                f"学员给出的诊断：{req.trainee_diagnosis or '未给出'}\n\n"
+                "请从以下 5 个维度评估（各20分，总分100分）：\n"
+                "1. 问诊系统性（主诉/现病史/既往史/用药史等覆盖情况）\n"
+                "2. 鉴别诊断思路（是否抓住关键鉴别问题）\n"
+                "3. 诊断准确性\n"
+                "4. 问诊效率（抓重点，避免无效提问）\n"
+                "5. 沟通技巧（关注患者情绪，表达清晰）\n\n"
+                "格式：先给出「总分 X/100」，再逐项说明得分与改进建议。"
+            )
+
+            client, model = get_oc_client()
+            oc_eval = await loop.run_in_executor(
+                _executor,
+                lambda: ask_llm(
+                    client, model,
+                    f"你是{dept}医学教育考官，请专业评估住院医师的问诊表现。",
+                    eval_prompt,
+                    max_tokens=500,
+                ),
+            )
+
+            # 百川补充点评（50字以内，只补最重要的一点）
+            bc_comment = ""
+            baichuan_client = get_baichuan_client()
+            if baichuan_client:
+                try:
+                    rsp = baichuan_client.chat.completions.create(
+                        model="Baichuan4-Turbo",
+                        messages=[
+                            {"role": "system", "content": "你是医学教育专家，请用50字以内补充最关键的一条改进建议。"},
+                            {"role": "user", "content": f"正确诊断：{diagnosis}\n评分报告：{oc_eval}\n请补充最重要的一条建议。"},
+                        ],
+                        temperature=0.2,
+                        max_tokens=100,
+                    )
+                    bc_comment = (rsp.choices[0].message.content or "").strip()
+                except Exception:
+                    pass
+
+            _jobs[job_id] = {
+                "status": "done",
+                "oc_eval": oc_eval,
+                "bc_comment": bc_comment,
+                "correct_diagnosis": diagnosis,
+            }
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            _jobs[job_id] = {"status": "error", "error": str(exc)}
+
+    asyncio.create_task(_run())
+    return {"job_id": job_id}
