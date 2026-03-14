@@ -8,7 +8,8 @@ export async function POST(request: NextRequest) {
   return new Promise<NextResponse>((resolve) => {
     const req = http.request(
       { hostname: '127.0.0.1', port: 8000, path: '/api/training/generate', method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
+        agent: false,
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'Connection': 'close' } },
       (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (c: Buffer) => chunks.push(c));

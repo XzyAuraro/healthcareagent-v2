@@ -49,15 +49,17 @@ export default function TrainingSessionPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, sending]);
 
-  // Generate case on mount
+  // Generate case on mount — AbortController 防止 StrictMode 重复请求
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+
     async function generate() {
       try {
         const res = await fetch('/api/training/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ difficulty, department }),
+          signal: controller.signal,
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const { job_id } = (await res.json()) as { job_id: string };
@@ -65,8 +67,8 @@ export default function TrainingSessionPage() {
         const start = Date.now();
         while (Date.now() - start < 120_000) {
           await new Promise((r) => setTimeout(r, 3000));
-          if (cancelled) return;
-          const poll = await fetch(`/api/training/job/${job_id}`);
+          if (controller.signal.aborted) return;
+          const poll = await fetch(`/api/training/job/${job_id}`, { signal: controller.signal });
           if (!poll.ok) continue;
           const job = await poll.json();
           if (job.status === 'done') {
@@ -80,11 +82,13 @@ export default function TrainingSessionPage() {
         }
         throw new Error('生成超时，请返回重试');
       } catch (e) {
-        if (!cancelled) setErrorMsg(e instanceof Error ? e.message : String(e));
+        if (controller.signal.aborted) return; // StrictMode cleanup，忽略
+        setErrorMsg(e instanceof Error ? e.message : String(e));
       }
     }
+
     generate();
-    return () => { cancelled = true; };
+    return () => controller.abort();
   }, [difficulty, department]);
 
   const sendMessage = async () => {
