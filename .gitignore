@@ -20,3 +20,10 @@ venv/
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 病例数据（含患者隐私，不上传）
+skill/ent-analgesic/
+skill/medical-opioid/data/
+
+# 旧项目遗留代码（已被新项目替代）
+legacy/
