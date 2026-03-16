@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import PrimaryTabsNav from '@/components/PrimaryTabsNav';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 type DebateResponse = {
   oc_answer: string;
@@ -514,9 +516,9 @@ export default function ClinicalPage() {
                     <h4 className="font-bold">AI 综合会诊共识</h4>
                     <span className="ml-auto text-xs text-slate-400">Step 3 — 最终建议</span>
                   </div>
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-200">
-                    {result.consensus || '（暂无共识内容）'}
-                  </p>
+                  <div className="prose prose-sm dark:prose-invert max-w-none text-slate-700 dark:text-slate-200">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.consensus || '（暂无共识内容）'}</ReactMarkdown>
+                  </div>
                 </article>
 
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -527,9 +529,9 @@ export default function ClinicalPage() {
                       <h4 className="font-bold text-sm">病例库初步分析</h4>
                       <span className="ml-auto text-xs text-slate-400">Step 1 — OC</span>
                     </div>
-                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                      {result.oc_answer || '（暂无内容）'}
-                    </p>
+                    <div className="prose prose-sm dark:prose-invert max-w-none text-slate-600 dark:text-slate-300">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.oc_answer || '（暂无内容）'}</ReactMarkdown>
+                    </div>
                   </article>
 
                   {/* 百川审阅 */}
@@ -541,9 +543,9 @@ export default function ClinicalPage() {
                       <h4 className="font-bold text-sm">百川医疗专家审阅</h4>
                       <span className="ml-auto text-xs text-slate-400">Step 2 — 百川</span>
                     </div>
-                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                      {result.baichuan_review || '（暂无审阅意见）'}
-                    </p>
+                    <div className="prose prose-sm dark:prose-invert max-w-none text-slate-600 dark:text-slate-300">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.baichuan_review || '（暂无审阅意见）'}</ReactMarkdown>
+                    </div>
                   </article>
                 </div>
               </>
