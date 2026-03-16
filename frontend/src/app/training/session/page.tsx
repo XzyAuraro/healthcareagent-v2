@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import PrimaryTabsNav from '@/components/PrimaryTabsNav';
 
 const DIFFICULTY_LABELS: Record<string, string> = {
@@ -204,9 +206,9 @@ export default function TrainingSessionPage() {
                 <span className="material-symbols-outlined text-primary">assessment</span>
                 AI 综合评分报告
               </h3>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">
-                {phase.result.oc_eval}
-              </p>
+              <div className="prose prose-sm dark:prose-invert max-w-none text-slate-700 dark:text-slate-300">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{phase.result.oc_eval}</ReactMarkdown>
+              </div>
             </div>
             {phase.result.bc_comment && (
               <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-700 dark:border-indigo-900/40 dark:bg-indigo-900/10 dark:text-indigo-300">
