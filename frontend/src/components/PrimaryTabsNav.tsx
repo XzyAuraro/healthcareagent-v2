@@ -16,7 +16,10 @@ const NAV_ITEMS = [
   { href: '/doctor', label: '医生管理后台' },
 ] as const;
 
-function isActive(pathname: string, href: string): boolean {
+function isActive(pathname: string | null, href: string): boolean {
+  if (!pathname) {
+    return false;
+  }
   if (href === '/') {
     return pathname === '/';
   }

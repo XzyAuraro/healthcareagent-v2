@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
@@ -29,7 +29,7 @@ const EMPTY_RX = (): PrescriptionItem => ({
   drug: '', dose: '', frequency: 'bid', route: '口服', duration: '', rationale: '',
 });
 
-export default function TrainingSessionPage() {
+function TrainingSessionPageContent() {
   const params = useSearchParams();
   const difficulty = params.get('difficulty') ?? 'intermediate';
   const department = params.get('department') ?? 'cardiology';
@@ -421,5 +421,13 @@ export default function TrainingSessionPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function TrainingSessionPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background-light dark:bg-background-dark" />}>
+      <TrainingSessionPageContent />
+    </Suspense>
   );
 }

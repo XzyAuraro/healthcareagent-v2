@@ -1,776 +1,536 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
 import PrimaryTabsNav from '@/components/PrimaryTabsNav';
+import { patientsApi, type ApiPatient, type ApiRiskLevel, type CreatePatientPayload } from '@/lib/api';
 
-type RiskLevel = 'high' | 'medium' | 'low';
-type SidebarTab = 'dashboard' | 'patients' | 'risk' | 'medication' | 'followup';
+type RiskLevel = ApiRiskLevel;
+type TabId = 'overview' | 'patients' | 'risk' | 'tasks';
 
 type Patient = {
   id: string;
   name: string;
+  age: number | null;
+  gender: string | null;
+  phone: string | null;
+  idCardNumber: string | null;
   diagnosis: string;
   risk: RiskLevel;
-  bloodPressure: string;
-  metricName: string;
-  metricValue: string;
+  visitDate: string | null;
+  address: string | null;
+  allergies: string | null;
+  pastHistory: string | null;
+  bloodPressure: string | null;
+  metricName: string | null;
+  metricValue: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactRelationship: string | null;
+  createdAt: string;
 };
 
-type MedicationTask = {
-  id: string;
-  patient: string;
-  drug: string;
-  issue: string;
-  action: string;
-  due: string;
-};
-
-type FollowupTask = {
-  id: string;
-  patient: string;
-  date: string;
-  focus: string;
-  status: 'today' | 'upcoming' | 'overdue';
-};
-
-type TodoItem = {
-  id: string;
-  title: string;
-  priority: 'P1' | 'P2' | 'P3';
-  deadline: string;
-};
-
-type NewCaseForm = {
+type PatientForm = {
   name: string;
+  age: string;
+  gender: string;
+  phone: string;
+  idCardNumber: string;
   diagnosis: string;
   risk: RiskLevel;
+  visitDate: string;
+  address: string;
+  allergies: string;
+  pastHistory: string;
   bloodPressure: string;
   metricName: string;
   metricValue: string;
+  contactName: string;
+  contactPhone: string;
+  contactRelationship: string;
 };
 
-const PATIENTS: Patient[] = [
-  {
-    id: '982132',
-    name: '张卫',
-    diagnosis: '高血压 / 2 型糖尿病 / 冠心病',
-    risk: 'high',
-    bloodPressure: '165/105',
-    metricName: '血糖',
-    metricValue: '8.4 mmol/L',
-  },
-  {
-    id: '441092',
-    name: '李晨',
-    diagnosis: '冠脉支架术后 / 高脂血症',
-    risk: 'medium',
-    bloodPressure: '132/82',
-    metricName: 'LDL-C',
-    metricValue: '2.8 mmol/L',
-  },
-  {
-    id: '331902',
-    name: '王欣',
-    diagnosis: '常规体检 / 轻度高血压',
-    risk: 'low',
-    bloodPressure: '118/76',
-    metricName: 'BMI',
-    metricValue: '23.5',
-  },
+const TABS: { id: TabId; label: string; icon: string }[] = [
+  { id: 'overview', label: '总览', icon: 'dashboard' },
+  { id: 'patients', label: '患者库', icon: 'groups' },
+  { id: 'risk', label: '风险分层', icon: 'analytics' },
+  { id: 'tasks', label: '待办', icon: 'task_alt' },
 ];
 
-const INITIAL_NEW_CASE_FORM: NewCaseForm = {
+const TASKS = ['复核高风险患者治疗计划', '补录缺失的监测数据', '安排未达标患者复查'];
+const GENDERS = ['未填写', '男', '女', '其他'] as const;
+const PHONE_PATTERN = /^1\d{10}$/;
+const ID_CARD_PATTERN = /^(?:\d{15}|\d{17}[\dXx])$/;
+const INPUT =
+  'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-800';
+
+const INITIAL_FORM: PatientForm = {
   name: '',
+  age: '',
+  gender: '未填写',
+  phone: '',
+  idCardNumber: '',
   diagnosis: '',
   risk: 'medium',
+  visitDate: '',
+  address: '',
+  allergies: '',
+  pastHistory: '',
   bloodPressure: '',
   metricName: '血糖',
   metricValue: '',
+  contactName: '',
+  contactPhone: '',
+  contactRelationship: '',
 };
 
-const MEDICATION_TASKS: MedicationTask[] = [
-  {
-    id: 'm1',
-    patient: '张卫',
-    drug: '盐酸贝那普利',
-    issue: '近 7 天血压波动较大',
-    action: '建议复核依从性并评估是否联合 CCB',
-    due: '今日 17:00',
-  },
-  {
-    id: 'm2',
-    patient: '李晨',
-    drug: '阿托伐他汀',
-    issue: 'LDL-C 未达标',
-    action: '建议评估剂量上调并排查饮食依从',
-    due: '明日 10:00',
-  },
-  {
-    id: 'm3',
-    patient: '王欣',
-    drug: '缬沙坦',
-    issue: '偶发低压偏低',
-    action: '建议 3 日居家血压连续监测后再调整',
-    due: '本周五',
-  },
-];
-
-const FOLLOWUP_TASKS: FollowupTask[] = [
-  {
-    id: 'f1',
-    patient: '张卫',
-    date: '今天 16:00',
-    focus: '复查肾功能与血钾，评估 ACEI 安全性',
-    status: 'today',
-  },
-  {
-    id: 'f2',
-    patient: '李晨',
-    date: '明天 09:30',
-    focus: '复查 LDL-C 与肝功能',
-    status: 'upcoming',
-  },
-  {
-    id: 'f3',
-    patient: '王欣',
-    date: '已逾期 1 天',
-    focus: '补录家庭血压与体重数据',
-    status: 'overdue',
-  },
-];
-
-const SIDEBAR_ITEMS: { id: SidebarTab; icon: string; label: string }[] = [
-  { id: 'dashboard', icon: 'dashboard', label: '工作台概览' },
-  { id: 'patients', icon: 'groups', label: '我的患者库' },
-  { id: 'risk', icon: 'analytics', label: '风险评估' },
-  { id: 'medication', icon: 'monitoring', label: '用药追踪' },
-  { id: 'followup', icon: 'event_note', label: '随访管理' },
-];
-
-const TAB_META: Record<SidebarTab, { title: string; description: string; icon: string }> = {
-  dashboard: {
-    title: '工作台概览',
-    description: '查看当日核心指标与重点患者进展。',
-    icon: 'dashboard',
-  },
-  patients: {
-    title: '患者库',
-    description: '按风险等级查看患者详情并进行病例管理。',
-    icon: 'patient_list',
-  },
-  risk: {
-    title: '风险评估',
-    description: '按高到低排序，优先处理高风险患者。',
-    icon: 'analytics',
-  },
-  medication: {
-    title: '用药追踪',
-    description: '聚焦当前用药问题、调整建议与到期任务。',
-    icon: 'pill',
-  },
-  followup: {
-    title: '随访管理',
-    description: '按时间线安排随访，减少遗漏与逾期。',
-    icon: 'event_note',
-  },
-};
-
-function getRiskBadgeClass(risk: RiskLevel): string {
-  if (risk === 'high') return 'bg-danger/10 text-danger';
-  if (risk === 'medium') return 'bg-warning/10 text-warning';
-  return 'bg-success/10 text-success';
+function formatRequestError(error: unknown, fallback: string) {
+  if (typeof error === 'object' && error !== null) {
+    const response = (error as { response?: { data?: { detail?: string } } }).response;
+    if (response?.data?.detail) return response.data.detail;
+  }
+  return fallback;
 }
 
-function getRiskLabel(risk: RiskLevel): string {
-  if (risk === 'high') return '高风险';
-  if (risk === 'medium') return '中风险';
-  return '低风险';
+function riskLabel(risk: RiskLevel) {
+  return risk === 'high' ? '高风险' : risk === 'medium' ? '中风险' : '低风险';
 }
 
-function getFollowupStatusClass(status: FollowupTask['status']): string {
-  if (status === 'today') return 'bg-blue-50 text-blue-600';
-  if (status === 'upcoming') return 'bg-emerald-50 text-emerald-600';
-  return 'bg-red-50 text-red-600';
+function riskClass(risk: RiskLevel) {
+  return risk === 'high'
+    ? 'border-red-200 bg-red-50 text-red-600'
+    : risk === 'medium'
+      ? 'border-amber-200 bg-amber-50 text-amber-600'
+      : 'border-emerald-200 bg-emerald-50 text-emerald-600';
 }
 
-function getFollowupStatusLabel(status: FollowupTask['status']): string {
-  if (status === 'today') return '今日';
-  if (status === 'upcoming') return '即将到期';
-  return '已逾期';
+function formatText(value: string | null | undefined, fallback = '未填写') {
+  return value && value.trim() ? value : fallback;
 }
 
-function createPatientId(): string {
-  return String(100000 + Math.floor(Math.random() * 900000));
+function formatAge(age: number | null) {
+  return age === null || Number.isNaN(age) ? '未填写' : `${age} 岁`;
+}
+
+function formatDate(value: string | null) {
+  if (!value) return '未填写';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString('zh-CN');
+}
+
+function formatDateTime(value: string) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString('zh-CN', { hour12: false });
+}
+
+function maskPhone(phone: string | null) {
+  if (!phone || !phone.trim()) return '未填写';
+  return phone.length < 7 ? phone : `${phone.slice(0, 3)}****${phone.slice(-4)}`;
+}
+
+function maskIdCard(value: string | null) {
+  if (!value || !value.trim()) return '未填写';
+  return value.length <= 8 ? `${value.slice(0, 2)}***${value.slice(-2)}` : `${value.slice(0, 6)}********${value.slice(-4)}`;
+}
+
+function mapPatient(patient: ApiPatient): Patient {
+  return {
+    id: patient.id,
+    name: patient.name,
+    age: patient.age,
+    gender: patient.gender,
+    phone: patient.phone,
+    idCardNumber: patient.id_card_number,
+    diagnosis: patient.diagnosis,
+    risk: patient.risk_level,
+    visitDate: patient.visit_date,
+    address: patient.address,
+    allergies: patient.allergies,
+    pastHistory: patient.past_history,
+    bloodPressure: patient.blood_pressure,
+    metricName: patient.metric_name,
+    metricValue: patient.metric_value,
+    contactName: patient.contact_name,
+    contactPhone: patient.contact_phone,
+    contactRelationship: patient.contact_relationship,
+    createdAt: patient.created_at,
+  };
+}
+
+function buildPayload(form: PatientForm): CreatePatientPayload {
+  const age = form.age.trim() ? Number(form.age.trim()) : null;
+  return {
+    name: form.name.trim(),
+    age: Number.isFinite(age) ? age : null,
+    gender: form.gender === '未填写' ? null : form.gender,
+    phone: form.phone.trim() || null,
+    id_card_number: form.idCardNumber.trim() || null,
+    diagnosis: form.diagnosis.trim(),
+    risk_level: form.risk,
+    visit_date: form.visitDate || null,
+    address: form.address.trim() || null,
+    allergies: form.allergies.trim() || null,
+    past_history: form.pastHistory.trim() || null,
+    blood_pressure: form.bloodPressure.trim() || null,
+    metric_name: form.metricName.trim() || null,
+    metric_value: form.metricValue.trim() || null,
+    contact_name: form.contactName.trim() || null,
+    contact_phone: form.contactPhone.trim() || null,
+    contact_relationship: form.contactRelationship.trim() || null,
+  };
+}
+
+function formFromPatient(patient: Patient): PatientForm {
+  return {
+    name: patient.name,
+    age: patient.age === null ? '' : String(patient.age),
+    gender: patient.gender || '未填写',
+    phone: patient.phone || '',
+    idCardNumber: patient.idCardNumber || '',
+    diagnosis: patient.diagnosis,
+    risk: patient.risk,
+    visitDate: patient.visitDate || '',
+    address: patient.address || '',
+    allergies: patient.allergies || '',
+    pastHistory: patient.pastHistory || '',
+    bloodPressure: patient.bloodPressure || '',
+    metricName: patient.metricName || '',
+    metricValue: patient.metricValue || '',
+    contactName: patient.contactName || '',
+    contactPhone: patient.contactPhone || '',
+    contactRelationship: patient.contactRelationship || '',
+  };
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4 py-6">
+      <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-lg font-bold">{title}</h2>
+          <button type="button" onClick={onClose} aria-label="关闭" className="rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-800">
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
+  return (
+    <label className={`space-y-2 ${wide ? 'md:col-span-2' : ''}`}>
+      <span className="text-sm text-slate-500">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function Detail({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
+  return (
+    <div className={`rounded-xl bg-slate-50 p-3 dark:bg-slate-800 ${wide ? 'sm:col-span-2' : ''}`}>
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-1 whitespace-pre-wrap font-semibold">{value}</p>
+    </div>
+  );
 }
 
 function PatientCard({
   patient,
-  onViewDetails,
+  onSelect,
+  onEdit,
+  onDelete,
+  deleting,
 }: {
   patient: Patient;
-  onViewDetails: (patient: Patient) => void;
+  onSelect: (patient: Patient) => void;
+  onEdit: (patient: Patient) => void;
+  onDelete: (patient: Patient) => void;
+  deleting: boolean;
 }) {
   return (
-    <article
-      className={`rounded-2xl border-l-4 bg-white p-5 shadow-sm transition hover:shadow-md dark:bg-slate-900 ${
-        patient.risk === 'high' ? 'border-danger' : patient.risk === 'medium' ? 'border-warning' : 'border-success'
-      }`}
-    >
-      <div className="mb-4 flex items-start justify-between">
+    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-bold">
-            {patient.name}
-            <span className="ml-2 text-xs font-normal text-slate-400">ID: {patient.id}</span>
-          </h3>
-          <p className="mt-1 text-xs text-slate-500">{patient.diagnosis}</p>
+          <h3 className="font-bold">{patient.name}</h3>
+          <p className="mt-1 text-xs text-slate-400">病历号 {patient.id}</p>
         </div>
-        <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${getRiskBadgeClass(patient.risk)}`}>
-          {getRiskLabel(patient.risk)}
-        </span>
+        <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${riskClass(patient.risk)}`}>{riskLabel(patient.risk)}</span>
       </div>
-
-      <div className="mb-4 grid grid-cols-2 gap-3">
-        <div className="rounded-lg bg-slate-50 p-2 text-center dark:bg-slate-800">
-          <p className="text-[10px] text-slate-400">血压</p>
-          <p className="text-sm font-bold">{patient.bloodPressure}</p>
-        </div>
-        <div className="rounded-lg bg-slate-50 p-2 text-center dark:bg-slate-800">
-          <p className="text-[10px] text-slate-400">{patient.metricName}</p>
-          <p className="text-sm font-bold">{patient.metricValue}</p>
-        </div>
+      <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-500">
+        <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-slate-800">{formatAge(patient.age)}</span>
+        <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-slate-800">{formatText(patient.gender)}</span>
+        <span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-slate-800">{formatDate(patient.visitDate)}</span>
       </div>
-
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => onViewDetails(patient)}
-          className="flex-1 rounded bg-info/10 py-1.5 text-xs font-bold text-info transition hover:bg-info hover:text-white"
-        >
-          查看详情
-        </button>
-        <button className="flex h-8 w-10 items-center justify-center rounded border border-slate-200 transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">
-          <span className="material-symbols-outlined text-sm">more_horiz</span>
-        </button>
+      <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">{patient.diagnosis}</p>
+      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800"><p className="text-xs text-slate-400">手机号</p><p className="mt-1 font-semibold">{maskPhone(patient.phone)}</p></div>
+        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800"><p className="text-xs text-slate-400">血压</p><p className="mt-1 font-semibold">{formatText(patient.bloodPressure, '--/--')}</p></div>
+        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800"><p className="text-xs text-slate-400">{formatText(patient.metricName, '指标')}</p><p className="mt-1 font-semibold">{formatText(patient.metricValue, '--')}</p></div>
+        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800"><p className="text-xs text-slate-400">联系人</p><p className="mt-1 font-semibold">{formatText(patient.contactName)}</p></div>
+      </div>
+      <p className="mt-3 text-xs text-slate-500">身份证号 {maskIdCard(patient.idCardNumber)} · 联系电话 {maskPhone(patient.contactPhone)}</p>
+      <div className="mt-4 flex gap-2">
+        <button type="button" onClick={() => onSelect(patient)} className="flex-1 rounded-xl bg-primary/10 px-3 py-2 text-sm font-semibold text-primary hover:bg-primary hover:text-white">查看详情</button>
+        <button type="button" onClick={() => onEdit(patient)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-primary hover:text-primary dark:border-slate-700 dark:text-slate-300">编辑</button>
+        <button type="button" onClick={() => onDelete(patient)} disabled={deleting} className="rounded-xl border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60">{deleting ? '删除中...' : '删除'}</button>
       </div>
     </article>
   );
 }
 
 export default function DoctorDashboard() {
-  const [activeTab, setActiveTab] = useState<SidebarTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [lastSyncAt, setLastSyncAt] = useState('刚刚');
-  const [allPatients, setAllPatients] = useState<Patient[]>(PATIENTS);
-  const [caseModalOpen, setCaseModalOpen] = useState(false);
-  const [newCaseForm, setNewCaseForm] = useState<NewCaseForm>(INITIAL_NEW_CASE_FORM);
-  const [caseFormError, setCaseFormError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [lastSyncAt, setLastSyncAt] = useState('未同步');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [riskFilter, setRiskFilter] = useState<'all' | RiskLevel>('all');
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+  const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [form, setForm] = useState<PatientForm>(INITIAL_FORM);
+
+  const loadPatients = async (background = false) => {
+    if (!background) setLoading(true);
+    setError('');
+    try {
+      const data = await patientsApi.getAll();
+      setPatients(data.map(mapPatient));
+      setLastSyncAt(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+    } catch (loadError) {
+      setError(formatRequestError(loadError, '患者数据加载失败，请检查后端和 PostgreSQL 配置。'));
+    } finally {
+      if (!background) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadPatients();
+  }, []);
+
+  const filteredPatients = useMemo(() => {
+    const keyword = searchQuery.trim().toLowerCase();
+    return patients.filter((patient) => {
+      if (riskFilter !== 'all' && patient.risk !== riskFilter) return false;
+      if (!keyword) return true;
+      return [
+        patient.name,
+        patient.id,
+        patient.phone,
+        patient.idCardNumber,
+        patient.diagnosis,
+        patient.visitDate,
+        patient.address,
+        patient.allergies,
+        patient.pastHistory,
+        patient.metricName,
+        patient.metricValue,
+        patient.bloodPressure,
+        patient.contactName,
+        patient.contactPhone,
+        patient.contactRelationship,
+      ].filter(Boolean).join(' ').toLowerCase().includes(keyword);
+    });
+  }, [patients, riskFilter, searchQuery]);
 
   const sortedPatients = useMemo(() => {
     const order: Record<RiskLevel, number> = { high: 0, medium: 1, low: 2 };
-    return [...allPatients].sort((a, b) => order[a.risk] - order[b.risk]);
-  }, [allPatients]);
+    return [...filteredPatients].sort((a, b) => {
+      const riskDiff = order[a.risk] - order[b.risk];
+      return riskDiff !== 0 ? riskDiff : b.createdAt.localeCompare(a.createdAt);
+    });
+  }, [filteredPatients]);
 
-  const todoItems = useMemo<TodoItem[]>(() => {
-    if (activeTab === 'medication') {
-      return [
-        { id: 'tm1', title: '复核张卫降压方案调整', priority: 'P1', deadline: '今天 17:00' },
-        { id: 'tm2', title: '确认李晨他汀剂量调整', priority: 'P2', deadline: '明天 10:00' },
-      ];
-    }
-    if (activeTab === 'followup') {
-      return [
-        { id: 'tf1', title: '补做王欣逾期随访', priority: 'P1', deadline: '尽快' },
-        { id: 'tf2', title: '安排李晨明日门诊复查', priority: 'P2', deadline: '明天 09:30' },
-      ];
-    }
-    if (activeTab === 'risk') {
-      return [
-        { id: 'tr1', title: '审核高风险患者今日计划', priority: 'P1', deadline: '今天 16:00' },
-        { id: 'tr2', title: '完成中风险患者复评 2 例', priority: 'P2', deadline: '今天 18:00' },
-      ];
-    }
-    return [
-      { id: 'td1', title: '审核 52 号病房张卫的 AI 风险报告', priority: 'P1', deadline: '今天 17:00' },
-      { id: 'td2', title: '确认 3 位新入院患者的初筛方案', priority: 'P2', deadline: '明天 10:00' },
-    ];
-  }, [activeTab]);
-
-  const handleSync = async () => {
-    setSyncing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setLastSyncAt(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
-    setSyncing(false);
+  const visiblePatients = activeTab === 'overview' ? sortedPatients.slice(0, 6) : sortedPatients;
+  const counts = {
+    high: patients.filter((patient) => patient.risk === 'high').length,
+    medium: patients.filter((patient) => patient.risk === 'medium').length,
+    low: patients.filter((patient) => patient.risk === 'low').length,
   };
 
-  const openCreateCaseModal = () => {
-    setCaseFormError('');
-    setCaseModalOpen(true);
+  const closeForm = () => {
+    setCreateOpen(false);
+    setEditingPatient(null);
+    setFormError('');
   };
 
-  const closeCreateCaseModal = () => {
-    setCaseModalOpen(false);
-    setNewCaseForm(INITIAL_NEW_CASE_FORM);
-    setCaseFormError('');
-  };
-
-  const handleCreateCase = (event: FormEvent<HTMLFormElement>) => {
+  const submitPatient = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!form.name.trim() || !form.diagnosis.trim()) return setFormError('请至少填写患者姓名和初步诊断。');
+    if (form.age.trim() && (!Number.isInteger(Number(form.age)) || Number(form.age) < 0 || Number(form.age) > 130)) return setFormError('年龄必须是 0 到 130 之间的整数。');
+    if (form.phone.trim() && !PHONE_PATTERN.test(form.phone.trim())) return setFormError('手机号必须是 11 位中国大陆手机号。');
+    if (form.idCardNumber.trim() && !ID_CARD_PATTERN.test(form.idCardNumber.trim())) return setFormError('身份证号必须是 15 位数字或 18 位数字/字母 X。');
+    if (form.contactPhone.trim() && !PHONE_PATTERN.test(form.contactPhone.trim())) return setFormError('联系人手机号必须是 11 位中国大陆手机号。');
 
-    if (!newCaseForm.name.trim() || !newCaseForm.diagnosis.trim()) {
-      setCaseFormError('请至少填写患者姓名和初步诊断。');
-      return;
+    setSaving(true);
+    setFormError('');
+    setSuccessMessage('');
+    try {
+      const saved = editingPatient ? await patientsApi.update(editingPatient.id, buildPayload(form)) : await patientsApi.create(buildPayload(form));
+      const next = mapPatient(saved);
+      setPatients((current) => [next, ...current.filter((patient) => patient.id !== next.id)]);
+      setLastSyncAt(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+      setSelectedPatient((current) => (current?.id === next.id ? next : current));
+      setActiveTab('patients');
+      closeForm();
+      setSuccessMessage(editingPatient ? '患者信息已更新。' : '患者已写入 PostgreSQL。');
+    } catch (saveError) {
+      setFormError(formatRequestError(saveError, editingPatient ? '患者更新失败，请稍后重试。' : '患者保存失败，请稍后重试。'));
+    } finally {
+      setSaving(false);
     }
-
-    const createdPatient: Patient = {
-      id: createPatientId(),
-      name: newCaseForm.name.trim(),
-      diagnosis: newCaseForm.diagnosis.trim(),
-      risk: newCaseForm.risk,
-      bloodPressure: newCaseForm.bloodPressure.trim() || '--/--',
-      metricName: newCaseForm.metricName.trim() || '指标',
-      metricValue: newCaseForm.metricValue.trim() || '--',
-    };
-
-    setAllPatients((list) => [createdPatient, ...list]);
-    setActiveTab('patients');
-    closeCreateCaseModal();
   };
 
-  const openPatientDetails = (patient: Patient) => {
-    setSelectedPatient(patient);
+  const deletePatient = async (patient: Patient) => {
+    if (!window.confirm(`确认删除患者“${patient.name}”吗？此操作不可恢复。`)) return;
+    setDeletingId(patient.id);
+    setSuccessMessage('');
+    setError('');
+    try {
+      await patientsApi.delete(patient.id);
+      setPatients((current) => current.filter((item) => item.id !== patient.id));
+      setSelectedPatient((current) => (current?.id === patient.id ? null : current));
+      setLastSyncAt(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+      setSuccessMessage(`患者“${patient.name}”已删除。`);
+    } catch (deleteError) {
+      setError(formatRequestError(deleteError, '患者删除失败，请稍后重试。'));
+    } finally {
+      setDeletingId(null);
+    }
   };
-
-  const closePatientDetails = () => {
-    setSelectedPatient(null);
-  };
-
-  const tabMeta = TAB_META[activeTab];
-  const highRiskCount = allPatients.filter((item) => item.risk === 'high').length;
-  const mediumRiskCount = allPatients.filter((item) => item.risk === 'medium').length;
-  const lowRiskCount = allPatients.filter((item) => item.risk === 'low').length;
 
   return (
-    <div className="min-h-screen bg-background-light font-display text-slate-900 antialiased dark:bg-background-dark dark:text-slate-100">
-      <header className="fixed top-0 z-40 flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white px-6 dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-primary p-1.5">
-            <span className="material-symbols-outlined text-2xl text-white">medical_services</span>
-          </div>
-          <h1 className="text-xl font-bold tracking-tight text-primary">
-            MedOS <span className="font-normal text-slate-400">| 医生管理后台</span>
-          </h1>
-        </div>
-
-        <div className="hidden max-w-xl flex-1 px-8 md:block">
-          <div className="relative">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-            <input
-              className="w-full rounded-xl border-none bg-slate-100 py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary/20 dark:bg-slate-800"
-              placeholder="搜索患者姓名、病案号或药品名称..."
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <PrimaryTabsNav className="hidden md:flex" />
-          <button className="relative rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800">
-            <span className="material-symbols-outlined">notifications</span>
-            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-danger ring-2 ring-white" />
-          </button>
-          <div className="h-8 w-px bg-slate-200 dark:bg-slate-700" />
-          <div className="flex items-center gap-2">
-            <div className="hidden text-right sm:block">
-              <p className="text-sm font-semibold">王建国 主任</p>
-              <p className="text-xs text-slate-500">心内科一病区</p>
+    <div className="min-h-screen bg-background-light p-6 text-slate-900 dark:bg-background-dark dark:text-slate-100">
+      <header className="mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="border-b border-slate-200 bg-white/80 px-6 py-4 dark:border-slate-800 dark:bg-slate-900/80">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm text-slate-500">医生工作台</p>
+              <h1 className="text-3xl font-black text-primary">医生管理后台</h1>
+              <p className="mt-1 text-sm text-slate-500">患者完整档案已接入 PostgreSQL，手机号和身份证号默认脱敏显示。</p>
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-primary/20 bg-primary/10 text-primary">
-              W
+            <div className="flex items-center gap-3">
+              <PrimaryTabsNav className="hidden md:flex" />
+              <button type="button" onClick={() => { setSyncing(true); void loadPatients(true).finally(() => setSyncing(false)); }} disabled={syncing} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold hover:bg-slate-200 disabled:opacity-70 dark:bg-slate-800 dark:hover:bg-slate-700">{syncing ? '同步中...' : `同步数据 | ${lastSyncAt}`}</button>
+              <button type="button" onClick={() => { setForm(INITIAL_FORM); setEditingPatient(null); setFormError(''); setCreateOpen(true); }} className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90">新建患者</button>
             </div>
           </div>
+        </div>
+        <div className="grid gap-4 bg-gradient-to-r from-primary via-primary to-cyan-600 px-6 py-5 text-white md:grid-cols-3">
+          <div><p className="text-xs uppercase tracking-[0.2em] text-cyan-100/80">总览</p><p className="mt-2 text-sm text-cyan-50/90">在院患者总数</p><p className="mt-1 text-3xl font-black">{patients.length}</p></div>
+          <div><p className="text-xs uppercase tracking-[0.2em] text-cyan-100/80">数据源</p><p className="mt-2 text-sm text-cyan-50/90">最近一次同步</p><p className="mt-1 text-3xl font-black">{lastSyncAt}</p></div>
+          <div><p className="text-xs uppercase tracking-[0.2em] text-cyan-100/80">状态</p><p className="mt-2 text-sm text-cyan-50/90">后端与数据库状态</p><p className="mt-1 text-3xl font-black">已就绪</p></div>
         </div>
       </header>
 
-      <div className="flex min-h-screen pt-16">
-        <aside className="fixed left-0 hidden h-[calc(100vh-64px)] w-64 flex-col justify-between border-r border-slate-200 bg-white p-4 lg:flex dark:border-slate-800 dark:bg-slate-900">
-          <nav className="space-y-1">
-            {SIDEBAR_ITEMS.map((item) => {
-              const isActive = item.id === activeTab;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setActiveTab(item.id)}
-                  className={`flex w-full cursor-pointer items-center gap-3 rounded-xl px-4 py-3 text-left transition ${
-                    isActive
-                      ? 'bg-primary text-white shadow-lg shadow-primary/20'
-                      : 'text-slate-600 hover:bg-primary/5 hover:text-primary dark:text-slate-400'
-                  }`}
-                >
-                  <span className="material-symbols-outlined">{item.icon}</span>
-                  <span className="font-medium">{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
+      <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+        {TABS.map((tab) => (
+          <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-3 rounded-2xl border px-4 py-4 text-left transition ${activeTab === tab.id ? 'border-primary bg-primary text-white shadow-lg shadow-primary/20' : 'border-slate-200 bg-white hover:border-primary/30 hover:bg-primary/5 dark:border-slate-800 dark:bg-slate-900'}`}>
+            <span className="material-symbols-outlined">{tab.icon}</span>
+            <span className="font-semibold">{tab.label}</span>
+          </button>
+        ))}
+      </section>
 
-          <div className="space-y-3 rounded-xl bg-slate-50 p-4 dark:bg-slate-800">
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>系统状态</span>
-              <span className="flex items-center gap-1 text-success">
-                <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                运行中
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500">最近同步：{lastSyncAt}</p>
-            <button
-              type="button"
-              disabled={syncing}
-              onClick={handleSync}
-              className="w-full rounded-lg bg-slate-200 py-2 text-xs font-semibold transition hover:bg-slate-300 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-slate-700 dark:hover:bg-slate-600"
-            >
-              {syncing ? '同步中...' : '同步云端数据'}
-            </button>
+      {successMessage && <section className="mb-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{successMessage}</section>}
+      {error && <section className="mb-4 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</section>}
+
+      {(activeTab === 'overview' || activeTab === 'risk') && (
+        <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"><p className="text-sm text-slate-500">高风险患者</p><p className="mt-2 text-3xl font-black text-red-600">{counts.high}</p></div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"><p className="text-sm text-slate-500">中风险患者</p><p className="mt-2 text-3xl font-black text-amber-600">{counts.medium}</p></div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"><p className="text-sm text-slate-500">低风险患者</p><p className="mt-2 text-3xl font-black text-emerald-600">{counts.low}</p></div>
+        </section>
+      )}
+
+      {activeTab !== 'tasks' && (
+        <section className="mb-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="grid gap-4 lg:grid-cols-[2fr_1fr_auto]">
+            <label className="relative block">
+              <span className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+              <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-800" placeholder="搜索姓名、病历号、手机号、身份证号、诊断、地址或联系人" />
+            </label>
+            <select value={riskFilter} onChange={(event) => setRiskFilter(event.target.value as 'all' | RiskLevel)} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-800">
+              <option value="all">全部风险等级</option><option value="high">仅看高风险</option><option value="medium">仅看中风险</option><option value="low">仅看低风险</option>
+            </select>
+            <div className="flex items-center justify-end text-sm text-slate-500">当前结果 {visiblePatients.length} 条</div>
           </div>
-        </aside>
+          <p className="mt-3 text-xs text-slate-400">提示：手机号、身份证号、联系人电话均已脱敏显示。</p>
+        </section>
+      )}
 
-        <main className="flex-1 space-y-8 overflow-y-auto p-6 lg:ml-64 xl:mr-80">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <h2 className="mb-1 flex items-center gap-2 text-lg font-bold">
-              <span className="material-symbols-outlined text-primary">{tabMeta.icon}</span>
-              {tabMeta.title}
-            </h2>
-            <p className="text-sm text-slate-500">{tabMeta.description}</p>
-          </section>
+      {activeTab === 'tasks' ? (
+        <section className="space-y-3">{TASKS.map((task) => <article key={task} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"><h2 className="font-semibold">{task}</h2></article>)}</section>
+      ) : (
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {loading ? <div className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">正在从 PostgreSQL 加载患者数据...</div> : visiblePatients.length === 0 ? <div className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">当前筛选条件下没有患者记录。</div> : visiblePatients.map((patient) => <PatientCard key={patient.id} patient={patient} onSelect={setSelectedPatient} onEdit={(item) => { setForm(formFromPatient(item)); setEditingPatient(item); setFormError(''); setCreateOpen(true); }} onDelete={deletePatient} deleting={deletingId === patient.id} />)}
+        </section>
+      )}
 
-          {activeTab === 'dashboard' && (
-            <>
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                  <div className="mb-4 flex items-center justify-between">
-                    <span className="material-symbols-outlined rounded-lg bg-warning/10 p-2 text-warning">priority_high</span>
-                    <span className="text-xs text-slate-400">较昨日 +2</span>
-                  </div>
-                  <p className="text-sm text-slate-500">待处理高风险患者</p>
-                  <p className="mt-1 text-3xl font-black">08</p>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                  <div className="mb-4 flex items-center justify-between">
-                    <span className="material-symbols-outlined rounded-lg bg-success/10 p-2 text-success">check_circle</span>
-                    <span className="text-xs text-slate-400">完成率 92%</span>
-                  </div>
-                  <p className="text-sm text-slate-500">今日已完成评估</p>
-                  <p className="mt-1 text-3xl font-black">15</p>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                  <div className="mb-4 flex items-center justify-between">
-                    <span className="material-symbols-outlined rounded-lg bg-info/10 p-2 text-info">history</span>
-                    <span className="text-xs text-slate-400">平均耗时 4m</span>
-                  </div>
-                  <p className="text-sm text-slate-500">本周随访总量</p>
-                  <p className="mt-1 text-3xl font-black">124</p>
-                </div>
-              </div>
-
-              <section className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="flex items-center gap-2 text-lg font-bold">
-                    <span className="material-symbols-outlined text-primary">patient_list</span>
-                    今日重点患者
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={openCreateCaseModal}
-                    className="flex items-center gap-2 rounded-lg bg-success px-4 py-2 text-sm font-bold text-white transition hover:opacity-90"
-                  >
-                    <span className="material-symbols-outlined text-sm">add</span>
-                    新建病历
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {sortedPatients.map((patient) => (
-                    <PatientCard key={patient.id} patient={patient} onViewDetails={openPatientDetails} />
-                  ))}
-                </div>
-              </section>
-            </>
-          )}
-
-          {activeTab === 'patients' && (
-            <section className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-lg font-bold">
-                  <span className="material-symbols-outlined text-primary">groups</span>
-                  患者列表
-                </h3>
-                <button
-                  type="button"
-                  onClick={openCreateCaseModal}
-                  className="flex items-center gap-2 rounded-lg bg-success px-4 py-2 text-sm font-bold text-white transition hover:opacity-90"
-                >
-                  <span className="material-symbols-outlined text-sm">add</span>
-                  新建病历
-                </button>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {allPatients.map((patient) => (
-                  <PatientCard key={patient.id} patient={patient} onViewDetails={openPatientDetails} />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {activeTab === 'risk' && (
-            <>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <div className="rounded-xl border border-red-100 bg-red-50 p-4">
-                  <p className="text-xs text-red-500">高风险</p>
-                  <p className="mt-1 text-2xl font-black text-red-600">{highRiskCount}</p>
-                </div>
-                <div className="rounded-xl border border-amber-100 bg-amber-50 p-4">
-                  <p className="text-xs text-amber-500">中风险</p>
-                  <p className="mt-1 text-2xl font-black text-amber-600">{mediumRiskCount}</p>
-                </div>
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
-                  <p className="text-xs text-emerald-500">低风险</p>
-                  <p className="mt-1 text-2xl font-black text-emerald-600">{lowRiskCount}</p>
-                </div>
-              </div>
-              <section className="space-y-6">
-                <h3 className="flex items-center gap-2 text-lg font-bold">
-                  <span className="material-symbols-outlined text-primary">priority_high</span>
-                  风险优先队列
-                </h3>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {sortedPatients.map((patient) => (
-                    <PatientCard key={patient.id} patient={patient} onViewDetails={openPatientDetails} />
-                  ))}
-                </div>
-              </section>
-            </>
-          )}
-
-          {activeTab === 'medication' && (
-            <section className="space-y-4">
-              {MEDICATION_TASKS.map((item) => (
-                <article key={item.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                  <div className="mb-2 flex items-center justify-between">
-                    <h3 className="font-bold text-slate-800 dark:text-slate-100">
-                      {item.patient} · {item.drug}
-                    </h3>
-                    <span className="rounded bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">{item.due}</span>
-                  </div>
-                  <p className="text-sm text-slate-600 dark:text-slate-300">{item.issue}</p>
-                  <div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                    {item.action}
-                  </div>
-                </article>
-              ))}
-            </section>
-          )}
-
-          {activeTab === 'followup' && (
-            <section className="space-y-4">
-              {FOLLOWUP_TASKS.map((item) => (
-                <article key={item.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                  <div className="mb-2 flex items-center justify-between">
-                    <h3 className="font-bold text-slate-800 dark:text-slate-100">{item.patient}</h3>
-                    <span className={`rounded px-2 py-1 text-xs font-semibold ${getFollowupStatusClass(item.status)}`}>
-                      {getFollowupStatusLabel(item.status)}
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-500">{item.date}</p>
-                  <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">{item.focus}</p>
-                </article>
-              ))}
-            </section>
-          )}
-        </main>
-
-        <aside className="fixed right-0 hidden h-[calc(100vh-64px)] w-80 overflow-y-auto border-l border-slate-200 bg-slate-50 p-6 xl:block dark:border-slate-800 dark:bg-slate-900/50">
-          <h3 className="mb-2 flex items-center gap-2 text-sm font-bold">
-            <span className="material-symbols-outlined text-primary">task_alt</span>
-            快捷待办
-          </h3>
-          <p className="mb-4 text-xs text-slate-500">当前模块：{SIDEBAR_ITEMS.find((item) => item.id === activeTab)?.label}</p>
-
-          <div className="space-y-4">
-            {todoItems.map((item) => (
-              <div key={item.id} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <label className="flex cursor-pointer items-start gap-3">
-                  <input className="mt-1 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary" type="checkbox" />
-                  <div>
-                    <p className="text-xs font-bold">{item.title}</p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                          item.priority === 'P1'
-                            ? 'bg-danger/10 text-danger'
-                            : item.priority === 'P2'
-                            ? 'bg-warning/10 text-warning'
-                            : 'bg-info/10 text-info'
-                        }`}
-                      >
-                        {item.priority}
-                      </span>
-                      <span className="text-[10px] text-slate-400">{item.deadline}</span>
-                    </div>
-                  </div>
-                </label>
-              </div>
-            ))}
-          </div>
-        </aside>
-      </div>
-
-      {caseModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-          <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-            <div className="mb-5 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white">新建病历</h3>
-              <button
-                type="button"
-                onClick={closeCreateCaseModal}
-                className="rounded p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
-                aria-label="关闭"
-              >
-                <span className="material-symbols-outlined">close</span>
-              </button>
+      {createOpen && (
+        <Modal title={editingPatient ? '编辑患者' : '新建患者'} onClose={closeForm}>
+          <form className="space-y-6" onSubmit={submitPatient}>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <Field label="患者姓名"><input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className={INPUT} placeholder="患者姓名" /></Field>
+              <Field label="年龄"><input value={form.age} onChange={(event) => setForm((current) => ({ ...current, age: event.target.value }))} className={INPUT} placeholder="年龄" inputMode="numeric" /></Field>
+              <Field label="性别"><select value={form.gender} onChange={(event) => setForm((current) => ({ ...current, gender: event.target.value }))} className={INPUT}>{GENDERS.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
+              <Field label="风险等级"><select value={form.risk} onChange={(event) => setForm((current) => ({ ...current, risk: event.target.value as RiskLevel }))} className={INPUT}><option value="high">高风险</option><option value="medium">中风险</option><option value="low">低风险</option></select></Field>
+              <Field label="手机号"><input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} className={INPUT} placeholder="11 位手机号" inputMode="numeric" /></Field>
+              <Field label="身份证号"><input value={form.idCardNumber} onChange={(event) => setForm((current) => ({ ...current, idCardNumber: event.target.value }))} className={INPUT} placeholder="15 位或 18 位身份证号" /></Field>
+              <Field label="就诊日期"><input type="date" value={form.visitDate} onChange={(event) => setForm((current) => ({ ...current, visitDate: event.target.value }))} className={INPUT} /></Field>
+              <Field label="地址"><input value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} className={INPUT} placeholder="居住地址" /></Field>
             </div>
 
-            <form className="space-y-4" onSubmit={handleCreateCase}>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-500">患者姓名</label>
-                  <input
-                    value={newCaseForm.name}
-                    onChange={(event) => setNewCaseForm((form) => ({ ...form, name: event.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-800"
-                    placeholder="请输入姓名"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-500">风险等级</label>
-                  <select
-                    value={newCaseForm.risk}
-                    onChange={(event) => setNewCaseForm((form) => ({ ...form, risk: event.target.value as RiskLevel }))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-800"
-                  >
-                    <option value="high">高风险</option>
-                    <option value="medium">中风险</option>
-                    <option value="low">低风险</option>
-                  </select>
-                </div>
-              </div>
+            <Field label="初步诊断" wide><textarea value={form.diagnosis} onChange={(event) => setForm((current) => ({ ...current, diagnosis: event.target.value }))} className={`${INPUT} min-h-[96px] resize-y`} placeholder="初步诊断" /></Field>
 
-              <div className="space-y-1">
-                <label className="text-xs text-slate-500">初步诊断</label>
-                <textarea
-                  value={newCaseForm.diagnosis}
-                  onChange={(event) => setNewCaseForm((form) => ({ ...form, diagnosis: event.target.value }))}
-                  className="min-h-[88px] w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-800"
-                  placeholder="例如：高血压 / 2 型糖尿病"
-                />
-              </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Field label="血压"><input value={form.bloodPressure} onChange={(event) => setForm((current) => ({ ...current, bloodPressure: event.target.value }))} className={INPUT} placeholder="如 126/82" /></Field>
+              <Field label="指标名称"><input value={form.metricName} onChange={(event) => setForm((current) => ({ ...current, metricName: event.target.value }))} className={INPUT} placeholder="如 HbA1c" /></Field>
+              <Field label="指标值"><input value={form.metricValue} onChange={(event) => setForm((current) => ({ ...current, metricValue: event.target.value }))} className={INPUT} placeholder="如 6.4%" /></Field>
+            </div>
 
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-500">血压</label>
-                  <input
-                    value={newCaseForm.bloodPressure}
-                    onChange={(event) => setNewCaseForm((form) => ({ ...form, bloodPressure: event.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-800"
-                    placeholder="120/80"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-500">指标名称</label>
-                  <input
-                    value={newCaseForm.metricName}
-                    onChange={(event) => setNewCaseForm((form) => ({ ...form, metricName: event.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-800"
-                    placeholder="血糖"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-500">指标值</label>
-                  <input
-                    value={newCaseForm.metricValue}
-                    onChange={(event) => setNewCaseForm((form) => ({ ...form, metricValue: event.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-800"
-                    placeholder="6.8 mmol/L"
-                  />
-                </div>
-              </div>
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Field label="过敏史"><textarea value={form.allergies} onChange={(event) => setForm((current) => ({ ...current, allergies: event.target.value }))} className={`${INPUT} min-h-[96px] resize-y`} placeholder="药物、食物、环境过敏信息" /></Field>
+              <Field label="既往史"><textarea value={form.pastHistory} onChange={(event) => setForm((current) => ({ ...current, pastHistory: event.target.value }))} className={`${INPUT} min-h-[96px] resize-y`} placeholder="基础疾病、手术史、长期用药等" /></Field>
+            </div>
 
-              {caseFormError && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{caseFormError}</p>}
+            <div className="grid gap-4 md:grid-cols-3">
+              <Field label="联系人"><input value={form.contactName} onChange={(event) => setForm((current) => ({ ...current, contactName: event.target.value }))} className={INPUT} placeholder="联系人姓名" /></Field>
+              <Field label="联系人电话"><input value={form.contactPhone} onChange={(event) => setForm((current) => ({ ...current, contactPhone: event.target.value }))} className={INPUT} placeholder="11 位手机号" inputMode="numeric" /></Field>
+              <Field label="与患者关系"><input value={form.contactRelationship} onChange={(event) => setForm((current) => ({ ...current, contactRelationship: event.target.value }))} className={INPUT} placeholder="如 配偶、子女" /></Field>
+            </div>
 
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={closeCreateCaseModal}
-                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 dark:border-slate-700 dark:text-slate-300"
-                >
-                  取消
-                </button>
-                <button type="submit" className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90">
-                  保存病历
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            {formError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{formError}</p>}
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={closeForm} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">取消</button>
+              <button type="submit" disabled={saving} className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-70">{saving ? '保存中...' : editingPatient ? '保存修改' : '保存患者'}</button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {selectedPatient && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white">患者详情</h3>
-              <button
-                type="button"
-                onClick={closePatientDetails}
-                className="rounded p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
-                aria-label="关闭"
-              >
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
-                  <p className="text-xs text-slate-500">姓名</p>
-                  <p className="mt-1 font-semibold">{selectedPatient.name}</p>
-                </div>
-                <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
-                  <p className="text-xs text-slate-500">病历号</p>
-                  <p className="mt-1 font-semibold">{selectedPatient.id}</p>
-                </div>
-              </div>
-
-              <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
-                <p className="text-xs text-slate-500">初步诊断</p>
-                <p className="mt-1 font-semibold">{selectedPatient.diagnosis}</p>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
-                  <p className="text-xs text-slate-500">风险等级</p>
-                  <p className="mt-1 font-semibold">{getRiskLabel(selectedPatient.risk)}</p>
-                </div>
-                <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
-                  <p className="text-xs text-slate-500">血压</p>
-                  <p className="mt-1 font-semibold">{selectedPatient.bloodPressure}</p>
-                </div>
-                <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
-                  <p className="text-xs text-slate-500">{selectedPatient.metricName}</p>
-                  <p className="mt-1 font-semibold">{selectedPatient.metricValue}</p>
-                </div>
-              </div>
-            </div>
+        <Modal title="患者详情" onClose={() => setSelectedPatient(null)}>
+          <div className="mb-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700">敏感字段已脱敏显示，若需修改手机号或身份证号，请点击“编辑患者”。</div>
+          <div className="grid gap-3 text-sm sm:grid-cols-2">
+            <Detail label="患者姓名" value={selectedPatient.name} /><Detail label="病历号" value={selectedPatient.id} />
+            <Detail label="年龄" value={formatAge(selectedPatient.age)} /><Detail label="性别" value={formatText(selectedPatient.gender)} />
+            <Detail label="手机号（脱敏）" value={maskPhone(selectedPatient.phone)} /><Detail label="身份证号（脱敏）" value={maskIdCard(selectedPatient.idCardNumber)} />
+            <Detail label="风险等级" value={riskLabel(selectedPatient.risk)} /><Detail label="就诊日期" value={formatDate(selectedPatient.visitDate)} />
+            <Detail label="血压" value={formatText(selectedPatient.bloodPressure, '--/--')} /><Detail label={formatText(selectedPatient.metricName, '指标')} value={formatText(selectedPatient.metricValue, '--')} />
+            <Detail label="联系人" value={formatText(selectedPatient.contactName)} /><Detail label="联系人电话（脱敏）" value={maskPhone(selectedPatient.contactPhone)} />
+            <Detail label="与患者关系" value={formatText(selectedPatient.contactRelationship)} /><Detail label="创建时间" value={formatDateTime(selectedPatient.createdAt)} />
+            <Detail label="地址" value={formatText(selectedPatient.address)} wide /><Detail label="初步诊断" value={selectedPatient.diagnosis} wide />
+            <Detail label="过敏史" value={formatText(selectedPatient.allergies)} wide /><Detail label="既往史" value={formatText(selectedPatient.pastHistory)} wide />
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -11,6 +11,15 @@ type AuthMode = 'login' | 'register';
 const DEMO_USERNAME = 'doctor001';
 const DEMO_PASSWORD = 'password123';
 
+const ROLE_OPTIONS = [
+  '医学生',
+  '实习医生',
+  '住院医师',
+  '主治医师',
+  '副主任医师',
+  '主任医师',
+];
+
 function formatAuthError(error: unknown): string {
   if (typeof error === 'object' && error !== null) {
     const maybeResponse = (error as { response?: { data?: { detail?: string } } }).response;
@@ -18,7 +27,7 @@ function formatAuthError(error: unknown): string {
       return maybeResponse.data.detail;
     }
   }
-  return '登录失败，请检查账号密码后重试。';
+  return '操作失败，请稍后重试。';
 }
 
 function setTokenCookie(token: string): void {
@@ -31,6 +40,9 @@ export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [department, setDepartment] = useState('');
+  const [role, setRole] = useState('住院医师');
   const [agreedTerms, setAgreedTerms] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -40,10 +52,19 @@ export default function LoginPage() {
 
   const isRegister = mode === 'register';
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const resetMessages = () => {
     setErrorMessage('');
     setHintMessage('');
+  };
+
+  const setModeAndReset = (nextMode: AuthMode) => {
+    setMode(nextMode);
+    resetMessages();
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    resetMessages();
 
     if (!agreedTerms) {
       setErrorMessage('请先阅读并同意数据安全条款。');
@@ -56,16 +77,33 @@ export default function LoginPage() {
     }
 
     if (isRegister) {
+      if (!fullName.trim() || !department.trim() || !role.trim()) {
+        setErrorMessage('请完整填写注册信息。');
+        return;
+      }
+      if (password.length < 8) {
+        setErrorMessage('密码长度至少 8 位。');
+        return;
+      }
       if (password !== confirmPassword) {
         setErrorMessage('两次输入的密码不一致。');
         return;
       }
-      setHintMessage('演示环境暂不开放自助注册，请使用演示账号登录。');
-      return;
     }
 
     setSubmitting(true);
     try {
+      if (isRegister) {
+        await authApi.register({
+          username: username.trim(),
+          full_name: fullName.trim(),
+          department: department.trim(),
+          role: role.trim(),
+          password,
+        });
+        setHintMessage('注册成功，正在自动登录。');
+      }
+
       const result = (await authApi.login(username.trim(), password)) as
         | { access_token?: string; token_type?: string }
         | undefined;
@@ -73,9 +111,11 @@ export default function LoginPage() {
       if (!token) {
         throw new Error('token missing');
       }
+
       localStorage.setItem('token', token);
       setTokenCookie(token);
       router.replace('/');
+      router.refresh();
     } catch (error) {
       setErrorMessage(formatAuthError(error));
     } finally {
@@ -100,30 +140,36 @@ export default function LoginPage() {
         <section className="hidden text-white lg:block">
           <div className="mb-8 flex items-center gap-4">
             <div className="overflow-hidden rounded-2xl border border-cyan-300/40 bg-white/95 p-2 shadow-lg shadow-slate-950/40">
-              <Image src="/images/logo.png" alt="智医助手 Logo" width={56} height={56} className="h-14 w-14 object-contain" />
+              <Image
+                src="/images/logo.png"
+                alt="智医助手 Logo"
+                width={56}
+                height={56}
+                className="h-14 w-14 object-contain"
+              />
             </div>
             <div>
               <p className="text-sm font-semibold tracking-[0.12em] text-cyan-100/90">智医助手</p>
-              <h1 className="text-3xl font-black">智医助手・镇痛类药物辅助决策系统</h1>
+              <h1 className="text-3xl font-black">智医助手・医疗工作站</h1>
             </div>
           </div>
 
           <p className="max-w-xl text-base leading-7 text-slate-200">
-            参考 stitch_/_5 的登录结构做了适配，保留医疗场景视觉并补齐可用登录流程，支持账号登录、条款确认和会话保持。
+            登录与注册统一在同一入口完成。新账号注册后会直接写入 PostgreSQL，并沿用现有登录鉴权流程。
           </p>
 
           <div className="mt-8 space-y-4">
             <div className="flex items-center gap-3 text-sm text-slate-200/90">
               <span className="material-symbols-outlined text-cyan-300">verified_user</span>
-              <span>严格遵循医疗数据最小化原则和访问审计流程。</span>
+              <span>账号信息持久化到 PostgreSQL，服务重启后仍可继续使用。</span>
             </div>
             <div className="flex items-center gap-3 text-sm text-slate-200/90">
               <span className="material-symbols-outlined text-cyan-300">lock</span>
-              <span>TLS 加密链路 + 登录态校验，避免未授权访问。</span>
+              <span>密码使用 bcrypt 哈希存储，不以明文保存。</span>
             </div>
             <div className="flex items-center gap-3 text-sm text-slate-200/90">
               <span className="material-symbols-outlined text-cyan-300">monitor_heart</span>
-              <span>临床、培训、政策模块入口已统一可点击导航。</span>
+              <span>登录后可直接进入临床、培训、政策和医生管理模块。</span>
             </div>
           </div>
         </section>
@@ -132,15 +178,17 @@ export default function LoginPage() {
           <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-2xl shadow-slate-950/30">
             <div className="relative bg-gradient-to-br from-primary to-indigo-700 px-7 py-7 text-white">
               <p className="text-xs uppercase tracking-[0.2em] text-white/80">Medical Professional Portal</p>
-              <h2 className="mt-2 text-2xl font-bold">{isRegister ? '账号注册' : '欢迎登录'}</h2>
-              <p className="mt-2 text-sm text-slate-100/90">演示账号：doctor001 / password123</p>
+              <h2 className="mt-2 text-2xl font-bold">{isRegister ? '创建账号' : '欢迎登录'}</h2>
+              <p className="mt-2 text-sm text-slate-100/90">
+                演示账号：{DEMO_USERNAME} / {DEMO_PASSWORD}
+              </p>
             </div>
 
             <div className="p-7">
               <div className="mb-6 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
                 <button
                   type="button"
-                  onClick={() => setMode('login')}
+                  onClick={() => setModeAndReset('login')}
                   className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
                     mode === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}
@@ -149,7 +197,7 @@ export default function LoginPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMode('register')}
+                  onClick={() => setModeAndReset('register')}
                   className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
                     mode === 'register' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}
@@ -159,6 +207,46 @@ export default function LoginPage() {
               </div>
 
               <form className="space-y-5" onSubmit={handleSubmit}>
+                {isRegister && (
+                  <>
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">姓名</label>
+                      <input
+                        value={fullName}
+                        onChange={(event) => setFullName(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                        placeholder="请输入姓名"
+                        autoComplete="name"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">科室</label>
+                      <input
+                        value={department}
+                        onChange={(event) => setDepartment(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                        placeholder="例如：心内科一病区"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">角色</label>
+                      <select
+                        value={role}
+                        onChange={(event) => setRole(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      >
+                        {ROLE_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
+
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-slate-700">工号 / 手机号</label>
                   <div className="relative">
@@ -169,7 +257,7 @@ export default function LoginPage() {
                       value={username}
                       onChange={(event) => setUsername(event.target.value)}
                       className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      placeholder="请输入账号"
+                      placeholder="请输入登录账号"
                       autoComplete="username"
                     />
                   </div>
@@ -255,8 +343,9 @@ export default function LoginPage() {
                     {errorMessage}
                   </p>
                 )}
+
                 {hintMessage && (
-                  <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                  <p className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
                     {hintMessage}
                   </p>
                 )}
@@ -266,7 +355,15 @@ export default function LoginPage() {
                   disabled={submitting}
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3.5 text-sm font-bold text-white shadow-lg shadow-primary/30 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <span>{isRegister ? '提交注册' : submitting ? '登录中...' : '立即登录'}</span>
+                  <span>
+                    {isRegister
+                      ? submitting
+                        ? '注册中...'
+                        : '注册并登录'
+                      : submitting
+                        ? '登录中...'
+                        : '立即登录'}
+                  </span>
                   <span className="material-symbols-outlined text-base">arrow_forward</span>
                 </button>
               </form>
@@ -299,7 +396,7 @@ export default function LoginPage() {
           <span className="h-3 w-px bg-white/20" />
           <span className="inline-flex items-center gap-2">
             <span className="material-symbols-outlined text-sm text-cyan-300">shield_lock</span>
-            动态脱敏：敏感字段实时保护
+            密码哈希存储，账号信息持久化
           </span>
           <span className="h-3 w-px bg-white/20" />
           <Link href="/policy" className="inline-flex items-center gap-1 text-cyan-300 hover:text-cyan-200">

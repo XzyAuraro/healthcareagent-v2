@@ -4,12 +4,10 @@ import { proxyToBackend } from '@/lib/backendProxy';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(request: NextRequest) {
-  const body = await request.text();
+export async function GET(request: NextRequest) {
   return proxyToBackend({
     request,
-    backendPath: '/api/clinical/submit',
-    method: 'POST',
-    body,
+    backendPath: '/api/training/stats',
+    method: 'GET',
   });
 }

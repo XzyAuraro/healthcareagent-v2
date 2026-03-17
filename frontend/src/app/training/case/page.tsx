@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
@@ -41,7 +41,7 @@ function formatTime(s: number) {
   return `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
-export default function CaseAnalysisPage() {
+function CaseAnalysisPageContent() {
   const params = useSearchParams();
   const difficulty = params.get('difficulty') ?? 'intermediate';
   const department = params.get('department') ?? 'cardiology';
@@ -108,7 +108,8 @@ export default function CaseAnalysisPage() {
   const startEvaluate = async () => {
     if (phase.type !== 'reading') return;
     if (timerRef.current) clearInterval(timerRef.current);
-    const caseId = phase.caseData.case_id;
+    const caseData = phase.caseData;
+    const caseId = caseData.case_id;
     setPhase({ type: 'evaluating' });
     setEvalSeconds(0);
 
@@ -139,7 +140,7 @@ export default function CaseAnalysisPage() {
       throw new Error('评估超时');
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : String(e));
-      if (phase.type !== 'done') setPhase((p) => p.type === 'evaluating' ? { type: 'reading', caseData: (phase as { type: 'reading'; caseData: CaseData }).caseData } : p);
+      setPhase((p) => (p.type === 'evaluating' ? { type: 'reading', caseData } : p));
     }
   };
 
@@ -333,5 +334,13 @@ export default function CaseAnalysisPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CaseAnalysisPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background-light dark:bg-background-dark" />}>
+      <CaseAnalysisPageContent />
+    </Suspense>
   );
 }

@@ -12,15 +12,26 @@ import re
 import uuid
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from core.auth import require_current_username
+from repositories.training_sessions import (
+    begin_training_evaluation,
+    create_training_message,
+    create_training_session,
+    get_training_session,
+    get_training_stats,
+    list_training_messages,
+    save_training_evaluation,
+    save_training_evaluation_error,
+)
 
 from services.llm_service import ask_llm, get_oc_client, get_baichuan_client
 
 router = APIRouter()
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 _jobs: Dict[str, dict] = {}
-_cases: Dict[str, dict] = {}
 
 
 # ── 请求模型 ─────────────────────────────────────────────────────────────────
@@ -38,14 +49,14 @@ class CaseGenerateRequest(BaseModel):
 class CaseEvaluateRequest(BaseModel):
     case_id: str
     trainee_diagnosis: str = ""
-    prescriptions: List[PrescriptionItem] = []
+    prescriptions: List[PrescriptionItem] = Field(default_factory=list)
     notes: str = ""   # 学员补充的临床推理
 
 
 class ChatRequest(BaseModel):
     case_id: str
     message: str
-    history: List[dict] = []  # [{"role": "trainee"|"patient", "content": "..."}]
+    history: List[dict] = Field(default_factory=list)  # [{"role": "trainee"|"patient", "content": "..."}]
 
 
 class PrescriptionItem(BaseModel):
@@ -59,9 +70,9 @@ class PrescriptionItem(BaseModel):
 
 class EvaluateRequest(BaseModel):
     case_id: str
-    history: List[dict]
+    history: List[dict] = Field(default_factory=list)
     trainee_diagnosis: Optional[str] = ""
-    prescriptions: List[PrescriptionItem] = []
+    prescriptions: List[PrescriptionItem] = Field(default_factory=list)
 
 
 # ── 映射表 ───────────────────────────────────────────────────────────────────
@@ -83,13 +94,101 @@ DEPARTMENT_MAP = {
 
 # ── 病例生成（异步）─────────────────────────────────────────────────────────
 
+SCORE_PATTERNS = (
+    re.compile(r"(?:闂瘖)?鎬诲垎\s*[:：]?\s*(\d+(?:\.\d+)?)\s*/\s*100"),
+    re.compile(r"(\d+(?:\.\d+)?)\s*/\s*100"),
+)
+
+ROLE_PREFIX_PATTERN = re.compile(r"^(?:患者|病人|医生|医师|学员|AI)\s*[:：]\s*")
+ROLE_CONFUSION_PATTERNS = (
+    re.compile(r"(?:我是|作为)(?:医生|医师|大夫|临床医生)"),
+    re.compile(r"(?:建议|诊断为|考虑为|处方|用药方案|鉴别诊断)"),
+    re.compile(r"(?:请坐下|我需要了解|我来为你|我建议你)"),
+)
+
+
+def _join_key_points(value: object) -> str:
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value if item)
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _message_history(
+    case_id: str,
+    owner_username: str,
+    fallback: list[dict] | None = None,
+) -> list[dict]:
+    stored_messages = list_training_messages(case_id, owner_username)
+    if stored_messages:
+        return [
+            {"role": message["role"], "content": message["content"]}
+            for message in stored_messages
+        ]
+    return fallback or []
+
+
+def _prescription_payload(prescriptions: list[PrescriptionItem]) -> list[dict]:
+    return [prescription.model_dump() for prescription in prescriptions if prescription.drug.strip()]
+
+
+def _extract_total_score(report: str) -> float | None:
+    for pattern in SCORE_PATTERNS:
+        match = pattern.search(report)
+        if not match:
+            continue
+        try:
+            score = float(match.group(1))
+        except ValueError:
+            return None
+        return max(0.0, min(score, 100.0))
+    return None
+
+
+def _normalize_patient_reply(reply: str) -> str:
+    text = (reply or "").strip()
+    if not text:
+        return "我有点不舒服，您继续问吧。"
+
+    text = ROLE_PREFIX_PATTERN.sub("", text)
+    text = text.replace("\r", "\n")
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    if not lines:
+        return "我有点不舒服，您继续问吧。"
+
+    first_line = ROLE_PREFIX_PATTERN.sub("", lines[0])
+    first_line = re.split(r"[。！？]\s*", first_line, maxsplit=1)[0].strip()
+    if not first_line:
+        first_line = lines[0]
+
+    for pattern in ROLE_CONFUSION_PATTERNS:
+        if pattern.search(first_line):
+            return "这个我说不清，您可以继续问我症状。"
+
+    return first_line[:80]
+
+
+class TrainingStatsResponse(BaseModel):
+    completed_trainings: int
+    simulation_completed_trainings: int
+    case_analysis_completed_trainings: int
+    average_score: float
+
+
+@router.get("/stats", response_model=TrainingStatsResponse)
+def training_stats(current_username: str = Depends(require_current_username)):
+    return get_training_stats(current_username)
+
+
 @router.post("/generate")
-async def generate_case(req: GenerateRequest):
+async def generate_case(
+    req: GenerateRequest,
+    current_username: str = Depends(require_current_username),
+):
     """异步生成虚拟病例，立即返回 job_id"""
     job_id = str(uuid.uuid4())
-    _jobs[job_id] = {"status": "running"}
-
-    loop = asyncio.get_event_loop()
+    _jobs[job_id] = {"status": "running", "owner_username": current_username}
 
     async def _run():
         try:
@@ -122,7 +221,27 @@ async def generate_case(req: GenerateRequest):
             case_data = json.loads(m.group())
 
             case_id = str(uuid.uuid4())
-            _cases[case_id] = {**case_data, "department": dept, "difficulty": req.difficulty}
+            create_training_session(
+                {
+                    "id": case_id,
+                    "mode": "simulation",
+                    "department": dept,
+                    "difficulty": req.difficulty,
+                    "chief_complaint": case_data.get("chief_complaint", ""),
+                    "patient_intro": case_data.get("patient_intro", ""),
+                    "patient_background": case_data.get("patient_background", ""),
+                    "diagnosis": case_data.get("diagnosis", ""),
+                    "key_points": _join_key_points(case_data.get("key_points", [])),
+                },
+                owner_username=current_username,
+            )
+            if case_data.get("patient_intro"):
+                create_training_message(
+                    case_id,
+                    current_username,
+                    role="patient",
+                    content=case_data.get("patient_intro", ""),
+                )
 
             _jobs[job_id] = {
                 "status": "done",
@@ -131,30 +250,38 @@ async def generate_case(req: GenerateRequest):
                 "patient_intro": case_data.get("patient_intro", ""),
                 "department": dept,
                 "difficulty": req.difficulty,
+                "owner_username": current_username,
             }
         except Exception as exc:
             import traceback
             traceback.print_exc()
-            _jobs[job_id] = {"status": "error", "error": str(exc)}
+            _jobs[job_id] = {
+                "status": "error",
+                "error": str(exc),
+                "owner_username": current_username,
+            }
 
     asyncio.create_task(_run())
     return {"job_id": job_id}
 
 
 @router.get("/job/{job_id}")
-def get_job(job_id: str):
+def get_job(job_id: str, current_username: str = Depends(require_current_username)):
     job = _jobs.get(job_id)
-    if not job:
+    if not job or job.get("owner_username") != current_username:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    return {key: value for key, value in job.items() if key != "owner_username"}
 
 
 # ── 患者角色扮演（同步，快速）────────────────────────────────────────────────
 
 @router.post("/chat")
-def training_chat(req: ChatRequest):
+def training_chat(
+    req: ChatRequest,
+    current_username: str = Depends(require_current_username),
+):
     """OC 扮演患者回应医生问诊（同步，max_tokens=150，通常 3-5 秒）"""
-    case = _cases.get(req.case_id)
+    case = get_training_session(req.case_id, current_username)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
 
@@ -162,7 +289,7 @@ def training_chat(req: ChatRequest):
 
     # 最近 6 轮历史
     history_text = ""
-    for turn in req.history[-6:]:
+    for turn in _message_history(req.case_id, current_username, req.history)[-6:]:
         role = "医生" if turn["role"] == "trainee" else "患者"
         history_text += f"{role}：{turn['content']}\n"
 
@@ -184,30 +311,49 @@ def training_chat(req: ChatRequest):
 
     user_prompt = f"{history_text}医生：{req.message}\n患者："
 
-    response = ask_llm(client, model, system_prompt, user_prompt, max_tokens=150)
+    create_training_message(req.case_id, current_username, role="trainee", content=req.message)
+    response = _normalize_patient_reply(
+        ask_llm(client, model, system_prompt, user_prompt, max_tokens=150)
+    )
+    create_training_message(req.case_id, current_username, role="patient", content=response)
     return {"response": response}
 
 
 # ── 最终评分（异步，OC + 百川各一次）────────────────────────────────────────
 
 @router.post("/evaluate")
-async def evaluate_training(req: EvaluateRequest):
+async def evaluate_training(
+    req: EvaluateRequest,
+    current_username: str = Depends(require_current_username),
+):
     """训练结束后评分：OC 主评 + 百川补充建议（仅调一次）"""
     job_id = str(uuid.uuid4())
-    _jobs[job_id] = {"status": "running"}
+    _jobs[job_id] = {"status": "running", "owner_username": current_username}
+
+    case = get_training_session(req.case_id, current_username)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    prescriptions = _prescription_payload(req.prescriptions)
+    begin_training_evaluation(
+        req.case_id,
+        current_username,
+        trainee_diagnosis=req.trainee_diagnosis or "",
+        prescriptions=prescriptions,
+    )
 
     loop = asyncio.get_event_loop()
 
     async def _run():
         try:
-            case = _cases.get(req.case_id, {})
+            case = get_training_session(req.case_id, current_username) or {}
             diagnosis = case.get("diagnosis", "未知")
-            key_points = ", ".join(case.get("key_points", []))
+            key_points = _join_key_points(case.get("key_points", ""))
             dept = case.get("department", "")
 
             history_text = "\n".join([
                 f"{'医生' if t['role'] == 'trainee' else '患者'}：{t['content']}"
-                for t in req.history
+                for t in _message_history(req.case_id, current_username, req.history)
             ])
 
             # ── 问诊评分部分 ──
@@ -298,16 +444,36 @@ async def evaluate_training(req: EvaluateRequest):
                 except Exception:
                     pass
 
+            save_training_evaluation(
+                req.case_id,
+                current_username,
+                {
+                    "trainee_diagnosis": req.trainee_diagnosis or "",
+                    "prescriptions": prescriptions,
+                    "total_score": _extract_total_score(oc_eval),
+                    "oc_eval": oc_eval,
+                    "bc_comment": bc_comment,
+                    "correct_diagnosis": diagnosis,
+                },
+            )
+
             _jobs[job_id] = {
                 "status": "done",
+                "case_id": req.case_id,
                 "oc_eval": oc_eval,
                 "bc_comment": bc_comment,
                 "correct_diagnosis": diagnosis,
+                "owner_username": current_username,
             }
         except Exception as exc:
             import traceback
             traceback.print_exc()
-            _jobs[job_id] = {"status": "error", "error": str(exc)}
+            save_training_evaluation_error(req.case_id, current_username, str(exc))
+            _jobs[job_id] = {
+                "status": "error",
+                "error": str(exc),
+                "owner_username": current_username,
+            }
 
     asyncio.create_task(_run())
     return {"job_id": job_id}
@@ -316,12 +482,13 @@ async def evaluate_training(req: EvaluateRequest):
 # ── 模式一：病例分析 ─ 生成完整病例摘要（异步）────────────────────────────────
 
 @router.post("/case-generate")
-async def case_generate(req: CaseGenerateRequest):
+async def case_generate(
+    req: CaseGenerateRequest,
+    current_username: str = Depends(require_current_username),
+):
     """生成完整结构化病例摘要供学员阅读分析"""
     job_id = str(uuid.uuid4())
-    _jobs[job_id] = {"status": "running"}
-    loop = asyncio.get_event_loop()
-
+    _jobs[job_id] = {"status": "running", "owner_username": current_username}
     async def _run():
         try:
             client, model = get_oc_client()
@@ -357,7 +524,24 @@ async def case_generate(req: CaseGenerateRequest):
             case_data = json.loads(m.group())
 
             case_id = str(uuid.uuid4())
-            _cases[case_id] = {**case_data, "department": dept, "difficulty": req.difficulty, "mode": "case_analysis"}
+            create_training_session(
+                {
+                    "id": case_id,
+                    "mode": "case_analysis",
+                    "department": dept,
+                    "difficulty": req.difficulty,
+                    "chief_complaint": case_data.get("chief_complaint", ""),
+                    "present_illness": case_data.get("present_illness", ""),
+                    "past_history": case_data.get("past_history", ""),
+                    "physical_exam": case_data.get("physical_exam", ""),
+                    "lab_results": case_data.get("lab_results", ""),
+                    "imaging": case_data.get("imaging", ""),
+                    "diagnosis": case_data.get("diagnosis", ""),
+                    "key_points": _join_key_points(case_data.get("key_points", [])),
+                    "scoring_criteria": case_data.get("scoring_criteria", ""),
+                },
+                owner_username=current_username,
+            )
 
             _jobs[job_id] = {
                 "status": "done",
@@ -370,11 +554,16 @@ async def case_generate(req: CaseGenerateRequest):
                 "imaging": case_data.get("imaging", ""),
                 "department": dept,
                 "difficulty": req.difficulty,
+                "owner_username": current_username,
             }
         except Exception as exc:
             import traceback
             traceback.print_exc()
-            _jobs[job_id] = {"status": "error", "error": str(exc)}
+            _jobs[job_id] = {
+                "status": "error",
+                "error": str(exc),
+                "owner_username": current_username,
+            }
 
     asyncio.create_task(_run())
     return {"job_id": job_id}
@@ -383,17 +572,32 @@ async def case_generate(req: CaseGenerateRequest):
 # ── 模式一：病例分析 ─ 评分（异步）────────────────────────────────────────────
 
 @router.post("/case-evaluate")
-async def case_evaluate(req: CaseEvaluateRequest):
+async def case_evaluate(
+    req: CaseEvaluateRequest,
+    current_username: str = Depends(require_current_username),
+):
     """评估学员的诊断 + 处方（OC 主评 + 百川药物安全审查）"""
     job_id = str(uuid.uuid4())
-    _jobs[job_id] = {"status": "running"}
+    _jobs[job_id] = {"status": "running", "owner_username": current_username}
+    case = get_training_session(req.case_id, current_username)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    prescriptions = _prescription_payload(req.prescriptions)
+    begin_training_evaluation(
+        req.case_id,
+        current_username,
+        trainee_diagnosis=req.trainee_diagnosis or "",
+        notes=req.notes or "",
+        prescriptions=prescriptions,
+    )
     loop = asyncio.get_event_loop()
 
     async def _run():
         try:
-            case = _cases.get(req.case_id, {})
+            case = get_training_session(req.case_id, current_username) or {}
             diagnosis = case.get("diagnosis", "未知")
-            key_points = ", ".join(case.get("key_points", []))
+            key_points = _join_key_points(case.get("key_points", ""))
             scoring_criteria = case.get("scoring_criteria", "")
             dept = case.get("department", "")
 
@@ -453,16 +657,37 @@ async def case_evaluate(req: CaseEvaluateRequest):
                 except Exception:
                     pass
 
+            save_training_evaluation(
+                req.case_id,
+                current_username,
+                {
+                    "trainee_diagnosis": req.trainee_diagnosis or "",
+                    "notes": req.notes or "",
+                    "prescriptions": prescriptions,
+                    "total_score": _extract_total_score(oc_eval),
+                    "oc_eval": oc_eval,
+                    "bc_comment": bc_comment,
+                    "correct_diagnosis": diagnosis,
+                },
+            )
+
             _jobs[job_id] = {
                 "status": "done",
+                "case_id": req.case_id,
                 "oc_eval": oc_eval,
                 "bc_comment": bc_comment,
                 "correct_diagnosis": diagnosis,
+                "owner_username": current_username,
             }
         except Exception as exc:
             import traceback
             traceback.print_exc()
-            _jobs[job_id] = {"status": "error", "error": str(exc)}
+            save_training_evaluation_error(req.case_id, current_username, str(exc))
+            _jobs[job_id] = {
+                "status": "error",
+                "error": str(exc),
+                "owner_username": current_username,
+            }
 
     asyncio.create_task(_run())
     return {"job_id": job_id}
