@@ -84,7 +84,7 @@ const POLICY_FEED: PolicyCard[] = [
     date: '2023-11-20',
     summary: '明确中医医疗机构动态调整机制，将符合条件的中药饮片与院内制剂纳入支付评估范围。',
     tags: ['中医药', '医保目录'],
-    url: 'https://www.nhsa.gov.cn/art/2023/11/20/art_37_11472.html',
+    url: 'https://www.nhsa.gov.cn/art/2021/12/31/art_37_7718.html',
   },
   {
     id: 'p2',
@@ -94,7 +94,7 @@ const POLICY_FEED: PolicyCard[] = [
     date: '2024-05-08',
     summary: '细化医院数据治理、医疗质量指标、采购追溯与安全运营责任分工。',
     tags: ['医院治理', '质量控制'],
-    url: 'https://www.nhc.gov.cn/yzygj/s3585/202405/index.html',
+    url: 'https://www.nhc.gov.cn/yzygj/s3585/index.shtml',
   },
   {
     id: 'p3',
@@ -104,7 +104,7 @@ const POLICY_FEED: PolicyCard[] = [
     date: '2024-08-15',
     summary: '补充采购平台供应商信用评级、违规处罚与器械批次追踪制度要求。',
     tags: ['药械监管', '供应链'],
-    url: 'https://www.nmpa.gov.cn/xxgk/fgwj/index.html',
+    url: 'https://www.nmpa.gov.cn/ylqx/ylqxfgwj/ylqxbmgzh/20171222201001323.html',
   },
 ];
 
