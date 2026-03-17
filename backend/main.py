@@ -3,7 +3,7 @@ load_dotenv()  # 加载 .env 中的 API 密钥
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import patients, auth, clinical, analytics, training
+from api.routes import patients, auth, clinical, analytics, training, policy
 
 app = FastAPI(
     title="Healthcare Agent API",
@@ -26,6 +26,7 @@ app.include_router(patients.router, prefix="/api/patients", tags=["患者管理"
 app.include_router(clinical.router, prefix="/api/clinical", tags=["临床辅助"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["数据分析"])
 app.include_router(training.router, prefix="/api/training", tags=["虚拟训练"])
+app.include_router(policy.router, prefix="/api/policy", tags=["政策解读"])
 
 @app.get("/")
 async def root():

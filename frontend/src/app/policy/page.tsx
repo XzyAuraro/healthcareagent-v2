@@ -1,7 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import PrimaryTabsNav from '@/components/PrimaryTabsNav';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 type SidebarSection = 'policy' | 'literature' | 'prescription' | 'assistant';
 type Agency = 'all' | 'nhc' | 'nsa' | 'nmpa';
@@ -14,6 +16,7 @@ type PolicyCard = {
   date: string;
   summary: string;
   tags: string[];
+  url: string;
 };
 
 type LiteratureCard = {
@@ -23,6 +26,7 @@ type LiteratureCard = {
   date: string;
   focus: string;
   evidenceLevel: 'A' | 'B' | 'C';
+  url: string;
 };
 
 type PrescriptionExample = {
@@ -80,6 +84,7 @@ const POLICY_FEED: PolicyCard[] = [
     date: '2023-11-20',
     summary: '明确中医医疗机构动态调整机制，将符合条件的中药饮片与院内制剂纳入支付评估范围。',
     tags: ['中医药', '医保目录'],
+    url: 'https://www.nhsa.gov.cn/art/2023/11/20/art_37_11472.html',
   },
   {
     id: 'p2',
@@ -89,6 +94,7 @@ const POLICY_FEED: PolicyCard[] = [
     date: '2024-05-08',
     summary: '细化医院数据治理、医疗质量指标、采购追溯与安全运营责任分工。',
     tags: ['医院治理', '质量控制'],
+    url: 'https://www.nhc.gov.cn/yzygj/s3585/202405/index.html',
   },
   {
     id: 'p3',
@@ -98,6 +104,7 @@ const POLICY_FEED: PolicyCard[] = [
     date: '2024-08-15',
     summary: '补充采购平台供应商信用评级、违规处罚与器械批次追踪制度要求。',
     tags: ['药械监管', '供应链'],
+    url: 'https://www.nmpa.gov.cn/xxgk/fgwj/index.html',
   },
 ];
 
@@ -109,6 +116,7 @@ const LITERATURE_FEED: LiteratureCard[] = [
     date: '2025-10-12',
     focus: '强调老年高血压联合用药起始剂量与肾功能动态评估。',
     evidenceLevel: 'A',
+    url: 'https://academic.oup.com/eurheartj',
   },
   {
     id: 'l2',
@@ -117,6 +125,7 @@ const LITERATURE_FEED: LiteratureCard[] = [
     date: '2024-11-03',
     focus: '建议对 65 岁以上患者进行季度级药物相互作用审查。',
     evidenceLevel: 'B',
+    url: 'https://jamanetwork.com/journals/jamainternalmedicine',
   },
   {
     id: 'l3',
@@ -125,6 +134,7 @@ const LITERATURE_FEED: LiteratureCard[] = [
     date: '2024-06-18',
     focus: '比较 7 省慢病报销规则差异并给出跨地区执行策略。',
     evidenceLevel: 'B',
+    url: 'https://www.sciencedirect.com/journal/health-policy',
   },
 ];
 
@@ -200,6 +210,27 @@ export default function PolicyPage() {
   const [expandedFaq, setExpandedFaq] = useState<string>(FAQS[0].id);
   const [region, setRegion] = useState('全国通用');
   const [assistantInput, setAssistantInput] = useState('');
+  const [assistantAnswer, setAssistantAnswer] = useState('');
+  const [assistantLoading, setAssistantLoading] = useState(false);
+
+  const handleAssistantSend = async () => {
+    if (!assistantInput.trim() || assistantLoading) return;
+    setAssistantLoading(true);
+    setAssistantAnswer('');
+    try {
+      const res = await fetch('/api/policy/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: assistantInput }),
+      });
+      const data = await res.json();
+      setAssistantAnswer(data.answer || '暂无回答');
+    } catch {
+      setAssistantAnswer('请求失败，请检查后端是否运行。');
+    } finally {
+      setAssistantLoading(false);
+    }
+  };
 
   const filteredPolicies = useMemo(() => {
     if (activeAgency === 'all') {
@@ -314,10 +345,15 @@ export default function PolicyPage() {
                             #{tag}
                           </span>
                         ))}
-                        <button className="ml-auto flex items-center gap-1 text-sm font-semibold text-primary">
+                        <a
+                          href={policy.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-auto flex items-center gap-1 text-sm font-semibold text-primary hover:underline"
+                        >
                           阅读全文
                           <span className="material-symbols-outlined text-sm">arrow_forward</span>
-                        </button>
+                        </a>
                       </div>
                     </article>
                   ))}
@@ -380,6 +416,15 @@ export default function PolicyPage() {
                   <h3 className="text-base font-bold text-slate-800">{item.title}</h3>
                   <p className="mt-1 text-xs text-slate-500">{item.journal}</p>
                   <p className="mt-3 text-sm text-slate-600">{item.focus}</p>
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 flex items-center gap-1 text-sm font-semibold text-primary hover:underline"
+                  >
+                    查看原文
+                    <span className="material-symbols-outlined text-sm">open_in_new</span>
+                  </a>
                 </article>
               ))}
             </section>
@@ -421,18 +466,28 @@ export default function PolicyPage() {
                   <input
                     value={assistantInput}
                     onChange={(event) => setAssistantInput(event.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAssistantSend()}
                     className="w-full rounded-xl border-slate-200 bg-slate-50 py-2.5 pl-4 pr-12 text-sm focus:border-primary focus:ring-primary"
                     placeholder="例如：这个处方在广东是否影响报销比例？"
                   />
                   <button
                     type="button"
+                    onClick={handleAssistantSend}
                     className="absolute right-2 rounded-lg bg-primary p-1.5 text-white disabled:opacity-60"
-                    disabled={assistantInput.trim().length === 0}
+                    disabled={assistantInput.trim().length === 0 || assistantLoading}
                   >
-                    <span className="material-symbols-outlined text-sm">send</span>
+                    <span className="material-symbols-outlined text-sm">
+                      {assistantLoading ? 'hourglass_empty' : 'send'}
+                    </span>
                   </button>
                 </div>
-                <p className="mt-2 text-xs text-slate-500">当前为演示页，后续可对接真实问答接口。</p>
+                {assistantAnswer && (
+                  <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <div className="prose prose-sm max-w-none text-slate-700">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{assistantAnswer}</ReactMarkdown>
+                    </div>
+                  </div>
+                )}
               </article>
 
               <article className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
