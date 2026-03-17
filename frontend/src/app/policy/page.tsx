@@ -94,7 +94,7 @@ const POLICY_FEED: PolicyCard[] = [
     date: '2024-05-08',
     summary: '细化医院数据治理、医疗质量指标、采购追溯与安全运营责任分工。',
     tags: ['医院治理', '质量控制'],
-    url: 'http://www.nhc.gov.cn/yzygj/s3594q/202110/9eed14e125b74f67b927eca2bc354934.shtml',
+    url: 'https://www.nhc.gov.cn/wjw/zcfg/list.shtml',
   },
   {
     id: 'p3',
