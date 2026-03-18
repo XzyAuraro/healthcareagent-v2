@@ -22,9 +22,13 @@ const ROLE_OPTIONS = [
 
 function formatAuthError(error: unknown): string {
   if (typeof error === 'object' && error !== null) {
-    const maybeResponse = (error as { response?: { data?: { detail?: string } } }).response;
-    if (maybeResponse?.data?.detail) {
-      return maybeResponse.data.detail;
+    const maybeResponse = (error as { response?: { data?: { detail?: unknown } } }).response;
+    const detail = maybeResponse?.data?.detail;
+    if (typeof detail === 'string') {
+      return detail;
+    }
+    if (Array.isArray(detail) && detail.length > 0) {
+      return detail.map((d: { msg?: string }) => d.msg ?? '输入格式错误').join('；');
     }
   }
   return '操作失败，请稍后重试。';
