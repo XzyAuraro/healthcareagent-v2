@@ -7,6 +7,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import PrimaryTabsNav from '@/components/PrimaryTabsNav';
 
+function getAuthHeaders(): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 const DIFFICULTY_LABELS: Record<string, string> = {
   beginner: '初级', intermediate: '中级', advanced: '高级',
 };
@@ -85,7 +90,7 @@ function CaseAnalysisPageContent() {
         while (Date.now() - start < 120_000) {
           await new Promise((r) => setTimeout(r, 3000));
           if (controller.signal.aborted) return;
-          const poll = await fetch(`/api/training/job/${job_id}`, { signal: controller.signal });
+          const poll = await fetch(`/api/training/job/${job_id}`, { signal: controller.signal, headers: getAuthHeaders() });
           if (!poll.ok) continue;
           const job = await poll.json();
           if (job.status === 'done') {
@@ -116,7 +121,7 @@ function CaseAnalysisPageContent() {
     try {
       const res = await fetch('/api/training/case-evaluate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           case_id: caseId,
           trainee_diagnosis: diagnosis,
@@ -131,7 +136,7 @@ function CaseAnalysisPageContent() {
       while (Date.now() - start < 300_000) {
         await new Promise((r) => setTimeout(r, 3000));
         setEvalSeconds(Math.floor((Date.now() - start) / 1000));
-        const poll = await fetch(`/api/training/job/${job_id}`);
+        const poll = await fetch(`/api/training/job/${job_id}`, { headers: getAuthHeaders() });
         if (!poll.ok) continue;
         const job = await poll.json();
         if (job.status === 'done') { setPhase({ type: 'done', result: job as EvalResult }); return; }
