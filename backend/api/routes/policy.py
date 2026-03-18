@@ -19,9 +19,11 @@ class ChatRequest(BaseModel):
 
 @router.post("/chat")
 async def policy_chat(req: ChatRequest):
-    client = get_oc_client()
+    client, model = get_oc_client()
+    if not client:
+        return {"answer": "AI 服务未配置，请检查 OC_GATEWAY_TOKEN 环境变量。"}
     response = client.chat.completions.create(
-        model="minimax",
+        model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": req.question},
