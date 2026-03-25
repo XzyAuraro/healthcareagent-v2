@@ -80,7 +80,7 @@ export default function TrainingPage() {
       <main className="mx-auto max-w-4xl px-6 py-12">
         <div className="mb-10 text-center">
           <h1 className="mb-3 text-3xl font-black text-slate-900 dark:text-white">
-            虚拟病例训练系统
+            虚拟疼痛病例训练场
           </h1>
           <p className="text-slate-500">
             基于 OC 与百川模型的标准化医学训练平台，支持病例分析与模拟问诊。

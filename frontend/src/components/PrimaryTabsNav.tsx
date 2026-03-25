@@ -11,7 +11,7 @@ type PrimaryTabsNavProps = {
 
 const NAV_ITEMS = [
   { href: '/', label: '首页' },
-  { href: '/training', label: '虚拟病例训练' },
+  { href: '/training', label: '虚拟疼痛病例训练场' },
   { href: '/clinical', label: '临床决策辅助' },
   { href: '/profile', label: '个性化心理画像' },
   { href: '/policy', label: '政策解读' },

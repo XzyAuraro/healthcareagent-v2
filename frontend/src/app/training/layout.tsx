@@ -1,6 +1,6 @@
 export const metadata = {
-  title: '虚拟病例训练',
-  description: '虚拟病例训练模块',
+  title: '虚拟疼痛病例训练场',
+  description: '虚拟疼痛病例训练场模块',
 };
 
 export default function RootLayout({
