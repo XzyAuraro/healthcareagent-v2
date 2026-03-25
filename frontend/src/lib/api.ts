@@ -129,6 +129,28 @@ export type ClinicalDiscussionResponse = {
   ai_message: ClinicalMessage;
 };
 
+export type PsychProfileEvidence = {
+  completed_trainings: number;
+  average_score: number;
+  recent_clinical_cases: number;
+  recent_training_samples: number;
+};
+
+export type PsychProfile = {
+  headline: string;
+  summary: string;
+  traits: string[];
+  strengths: string[];
+  watchouts: string[];
+  coaching: string[];
+  evolution: string;
+  confidence: string;
+  generated_by?: string | null;
+  version: number;
+  updated_at?: string | null;
+  evidence: PsychProfileEvidence;
+};
+
 const api = axios.create({
   baseURL: '/api',
   headers: {
@@ -174,6 +196,8 @@ export const authApi = {
   register: (payload: RegisterPayload) =>
     api.post('/auth/register', payload) as Promise<{ message: string; username: string }>,
   getMe: () => api.get('/auth/me'),
+  getProfile: () => api.get('/auth/profile') as Promise<PsychProfile>,
+  refreshProfile: () => api.post('/auth/profile/refresh') as Promise<PsychProfile>,
 };
 
 export const patientsApi = {

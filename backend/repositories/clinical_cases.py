@@ -415,3 +415,22 @@ def touch_clinical_case(case_id: str, owner_username: str) -> None:
                 "UPDATE clinical_cases SET updated_at = NOW() WHERE id = %s AND owner_username = %s",
                 (case_id, owner_username),
             )
+
+
+def list_recent_clinical_cases(
+    owner_username: str,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT {CASE_COLUMNS}
+                FROM clinical_cases
+                WHERE owner_username = %s
+                ORDER BY updated_at DESC
+                LIMIT %s
+                """,
+                (owner_username, limit),
+            )
+            return cursor.fetchall()

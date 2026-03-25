@@ -23,6 +23,7 @@ from repositories.clinical_cases import (
     update_clinical_case,
 )
 from services.llm_service import ask_llm, ask_llm_debate, get_oc_client, get_baichuan_client
+from services.psych_profile_service import queue_psych_profile_refresh
 
 router = APIRouter()
 
@@ -306,6 +307,7 @@ def create_discussion_message(
             content="当前 LLM 未配置或不可用。医生发言已保存到 PostgreSQL，待模型恢复后可重新发起会诊摘要。",
         )
     touch_clinical_case(case_id, current_username)
+    queue_psych_profile_refresh(current_username, trigger="clinical-discussion")
     return {"doctor_message": doctor_message, "ai_message": ai_message}
 
 
@@ -398,6 +400,7 @@ async def submit_case(
                 author_name="AI 联合会诊",
                 content=consensus,
             )
+            queue_psych_profile_refresh(current_username, trigger="clinical-decision")
             _jobs[job_id] = {
                 "status": "done",
                 "case_id": case_id,

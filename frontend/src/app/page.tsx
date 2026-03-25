@@ -10,11 +10,11 @@ export default function HomePage() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
-              <div className="overflow-hidden rounded-xl border border-cyan-300/40 bg-white/95 p-1.5 shadow-sm">
-                <Image src="/images/logo.png" alt="智医助手 Logo" width={44} height={44} className="h-11 w-11 object-contain" />
+              <div className="overflow-hidden rounded-xl border border-white/10 bg-slate-950/80 p-1.5 shadow-sm shadow-slate-950/15">
+                <Image src="/images/logo.png" alt="都梁痛安 Logo" width={44} height={44} className="h-11 w-11 rounded-lg object-cover" />
               </div>
               <h2 className="-ml-0.5 text-sm font-bold tracking-tight text-primary dark:text-white md:text-base">
-                智医助手・镇痛类药物辅助决策系统
+                都梁痛安·疼痛管理智能辅助平台
               </h2>
             </div>
             <PrimaryTabsNav className="hidden md:flex" />
@@ -52,7 +52,7 @@ export default function HomePage() {
                 </span>
                 系统运行良好 · 毫秒级云同步已开启
               </div>
-              <h1 className="mb-4 text-4xl font-black md:text-5xl leading-tight">欢迎使用智医助手系统</h1>
+              <h1 className="mb-4 text-4xl font-black md:text-5xl leading-tight">欢迎使用都梁痛安平台</h1>
               <p className="text-lg text-slate-300">
                 基于 OC × 百川 三阶辩论引擎，整合 ClinPGx 药物基因组学数据库、OpenFDA 药物相互作用数据、CPIC 临床指南及 331 例真实镇痛病历，提供结构化镇痛处方辅助决策。
               </p>

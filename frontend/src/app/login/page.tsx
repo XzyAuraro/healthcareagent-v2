@@ -11,26 +11,22 @@ type AuthMode = 'login' | 'register';
 const DEMO_USERNAME = 'doctor001';
 const DEMO_PASSWORD = 'password123';
 
-const ROLE_OPTIONS = [
-  '医学生',
-  '实习医生',
-  '住院医师',
-  '主治医师',
-  '副主任医师',
-  '主任医师',
-];
+const ROLE_OPTIONS = ['医学生', '实习医生', '住院医师', '主治医师', '副主任医师', '主任医师'];
 
 function formatAuthError(error: unknown): string {
   if (typeof error === 'object' && error !== null) {
     const maybeResponse = (error as { response?: { data?: { detail?: unknown } } }).response;
     const detail = maybeResponse?.data?.detail;
+
     if (typeof detail === 'string') {
       return detail;
     }
+
     if (Array.isArray(detail) && detail.length > 0) {
-      return detail.map((d: { msg?: string }) => d.msg ?? '输入格式错误').join('；');
+      return detail.map((item: { msg?: string }) => item.msg ?? '输入格式错误').join('，');
     }
   }
+
   return '操作失败，请稍后重试。';
 }
 
@@ -85,10 +81,12 @@ export default function LoginPage() {
         setErrorMessage('请完整填写注册信息。');
         return;
       }
+
       if (password.length < 8) {
         setErrorMessage('密码长度至少 8 位。');
         return;
       }
+
       if (password !== confirmPassword) {
         setErrorMessage('两次输入的密码不一致。');
         return;
@@ -96,6 +94,7 @@ export default function LoginPage() {
     }
 
     setSubmitting(true);
+
     try {
       if (isRegister) {
         await authApi.register({
@@ -112,6 +111,7 @@ export default function LoginPage() {
         | { access_token?: string; token_type?: string }
         | undefined;
       const token = result?.access_token;
+
       if (!token) {
         throw new Error('token missing');
       }
@@ -128,287 +128,240 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 px-4 py-10 font-display">
+    <main className="relative min-h-screen bg-slate-950">
       <Image
-        src="/images/log_in_bg.png"
-        alt="登录背景"
+        src="/images/page_img/login_BG.jpg"
+        alt="医疗登录背景"
         fill
         priority
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+        sizes="100vw"
+        className="absolute inset-0 object-cover"
       />
-      <div className="pointer-events-none absolute inset-0 bg-slate-950/35" />
-      <div className="pointer-events-none absolute -left-28 top-8 h-64 w-64 rounded-full bg-cyan-300/10 blur-3xl" />
-      <div className="pointer-events-none absolute -right-16 bottom-8 h-72 w-72 rounded-full bg-indigo-500/20 blur-3xl" />
+      <div className="absolute inset-0 bg-slate-950/45" />
 
-      <div className="relative z-10 grid w-full max-w-6xl gap-10 lg:grid-cols-[1.1fr_1fr]">
-        <section className="hidden text-white lg:block">
-          <div className="mb-8 flex items-center gap-4">
-            <div className="overflow-hidden rounded-2xl border border-cyan-300/40 bg-white/95 p-2 shadow-lg shadow-slate-950/40">
-              <Image
-                src="/images/logo.png"
-                alt="智医助手 Logo"
-                width={56}
-                height={56}
-                className="h-14 w-14 object-contain"
-              />
-            </div>
-            <div>
-              <p className="text-sm font-semibold tracking-[0.12em] text-cyan-100/90">智医助手</p>
-              <h1 className="text-3xl font-black">智医助手・医疗工作站</h1>
-            </div>
-          </div>
-
-          <p className="max-w-xl text-base leading-7 text-slate-200">
-            登录与注册统一在同一入口完成。新账号注册后会直接写入 PostgreSQL，并沿用现有登录鉴权流程。
-          </p>
-
-          <div className="mt-8 space-y-4">
-            <div className="flex items-center gap-3 text-sm text-slate-200/90">
-              <span className="material-symbols-outlined text-cyan-300">verified_user</span>
-              <span>账号信息持久化到 PostgreSQL，服务重启后仍可继续使用。</span>
-            </div>
-            <div className="flex items-center gap-3 text-sm text-slate-200/90">
-              <span className="material-symbols-outlined text-cyan-300">lock</span>
-              <span>密码使用 bcrypt 哈希存储，不以明文保存。</span>
-            </div>
-            <div className="flex items-center gap-3 text-sm text-slate-200/90">
-              <span className="material-symbols-outlined text-cyan-300">monitor_heart</span>
-              <span>登录后可直接进入临床、培训、政策和医生管理模块。</span>
-            </div>
-          </div>
-        </section>
-
-        <section className="w-full">
-          <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-2xl shadow-slate-950/30">
-            <div className="relative bg-gradient-to-br from-primary to-indigo-700 px-7 py-7 text-white">
-              <p className="text-xs uppercase tracking-[0.2em] text-white/80">Medical Professional Portal</p>
-              <h2 className="mt-2 text-2xl font-bold">{isRegister ? '创建账号' : '欢迎登录'}</h2>
-              <p className="mt-2 text-sm text-slate-100/90">
-                演示账号：{DEMO_USERNAME} / {DEMO_PASSWORD}
-              </p>
-            </div>
-
-            <div className="p-7">
-              <div className="mb-6 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
-                <button
-                  type="button"
-                  onClick={() => setModeAndReset('login')}
-                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                    mode === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  账号登录
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setModeAndReset('register')}
-                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                    mode === 'register' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  账号注册
-                </button>
+      <div className="relative z-10 mx-auto flex min-h-screen w-full items-center justify-center px-4 py-10">
+        <section className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.45)]">
+          <div className="border-b border-slate-100 bg-slate-50 px-6 py-5">
+            <div className="flex items-center gap-4">
+              <div className="rounded-2xl bg-slate-900 p-1.5 shadow-sm">
+                <Image
+                  src="/images/logo.png"
+                  alt="Healthcare Agent Logo"
+                  width={56}
+                  height={56}
+                  priority
+                  className="h-14 w-14 rounded-xl object-cover"
+                />
               </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-700">Healthcare Agent</p>
+                <h1 className="mt-1 text-xl font-bold text-slate-900">都梁痛安·疼痛管理智能辅助平台</h1>
+                <p className="mt-1 text-sm text-slate-500">登录后可进入临床辅助、训练与医生工作台。</p>
+              </div>
+            </div>
+          </div>
 
-              <form className="space-y-5" onSubmit={handleSubmit}>
-                {isRegister && (
-                  <>
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">姓名</label>
-                      <input
-                        value={fullName}
-                        onChange={(event) => setFullName(event.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                        placeholder="请输入姓名"
-                        autoComplete="name"
-                      />
-                    </div>
+          <div className="px-6 py-6">
+            <div className="mb-6 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">{isRegister ? '创建账号' : '账号登录'}</h2>
+                <p className="mt-1 text-sm text-slate-500">请填写账号信息继续。</p>
+              </div>
+              <div className="rounded-2xl border border-cyan-100 bg-cyan-50 px-3 py-2 text-right text-xs text-cyan-800">
+                <p className="font-semibold">演示账号</p>
+                <p className="mt-1 whitespace-nowrap">
+                  {DEMO_USERNAME} / {DEMO_PASSWORD}
+                </p>
+              </div>
+            </div>
 
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">科室</label>
-                      <input
-                        value={department}
-                        onChange={(event) => setDepartment(event.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                        placeholder="例如：心内科一病区"
-                      />
-                    </div>
+            <div className="mb-6 grid grid-cols-2 rounded-2xl bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() => setModeAndReset('login')}
+                className={`rounded-2xl px-3 py-2.5 text-sm font-semibold transition ${
+                  mode === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                登录
+              </button>
+              <button
+                type="button"
+                onClick={() => setModeAndReset('register')}
+                className={`rounded-2xl px-3 py-2.5 text-sm font-semibold transition ${
+                  mode === 'register' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                注册
+              </button>
+            </div>
 
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">角色</label>
-                      <select
-                        value={role}
-                        onChange={(event) => setRole(event.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      >
-                        {ROLE_OPTIONS.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </>
-                )}
-
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">工号 / 手机号</label>
-                  <div className="relative">
-                    <span className="material-symbols-outlined pointer-events-none absolute left-3 top-3 text-slate-400">
-                      person
-                    </span>
+            <form className="space-y-4" onSubmit={handleSubmit}>
+              {isRegister && (
+                <>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">姓名</label>
                     <input
-                      value={username}
-                      onChange={(event) => setUsername(event.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      placeholder="请输入登录账号"
-                      autoComplete="username"
+                      value={fullName}
+                      onChange={(event) => setFullName(event.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                      placeholder="请输入姓名"
+                      autoComplete="name"
                     />
                   </div>
-                </div>
 
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">
-                    {isRegister ? '设置密码' : '登录密码'}
-                  </label>
-                  <div className="relative">
-                    <span className="material-symbols-outlined pointer-events-none absolute left-3 top-3 text-slate-400">
-                      lock
-                    </span>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">科室</label>
                     <input
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      type={showPassword ? 'text' : 'password'}
-                      className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-12 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      placeholder="请输入密码"
-                      autoComplete={isRegister ? 'new-password' : 'current-password'}
+                      value={department}
+                      onChange={(event) => setDepartment(event.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                      placeholder="例如：疼痛科 / 麻醉科"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">角色</label>
+                    <select
+                      value={role}
+                      onChange={(event) => setRole(event.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                    >
+                      {ROLE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">工号 / 手机号</label>
+                <input
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  placeholder="请输入登录账号"
+                  autoComplete="username"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  {isRegister ? '设置密码' : '登录密码'}
+                </label>
+                <div className="relative">
+                  <input
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    type={showPassword ? 'text' : 'password'}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-12 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                    placeholder="请输入密码"
+                    autoComplete={isRegister ? 'new-password' : 'current-password'}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((value) => !value)}
+                    className="absolute right-3 top-3 text-slate-400 transition hover:text-slate-600"
+                  >
+                    <span className="material-symbols-outlined text-base">
+                      {showPassword ? 'visibility_off' : 'visibility'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {isRegister && (
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">确认密码</label>
+                  <div className="relative">
+                    <input
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-12 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                      placeholder="请再次输入密码"
+                      autoComplete="new-password"
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword((value) => !value)}
+                      onClick={() => setShowConfirmPassword((value) => !value)}
                       className="absolute right-3 top-3 text-slate-400 transition hover:text-slate-600"
                     >
                       <span className="material-symbols-outlined text-base">
-                        {showPassword ? 'visibility_off' : 'visibility'}
+                        {showConfirmPassword ? 'visibility_off' : 'visibility'}
                       </span>
                     </button>
                   </div>
                 </div>
+              )}
 
-                {isRegister && (
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">确认密码</label>
-                    <div className="relative">
-                      <span className="material-symbols-outlined pointer-events-none absolute left-3 top-3 text-slate-400">
-                        verified_user
-                      </span>
-                      <input
-                        value={confirmPassword}
-                        onChange={(event) => setConfirmPassword(event.target.value)}
-                        type={showConfirmPassword ? 'text' : 'password'}
-                        className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-12 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                        placeholder="请再次输入密码"
-                        autoComplete="new-password"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirmPassword((value) => !value)}
-                        className="absolute right-3 top-3 text-slate-400 transition hover:text-slate-600"
-                      >
-                        <span className="material-symbols-outlined text-base">
-                          {showConfirmPassword ? 'visibility_off' : 'visibility'}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                )}
+              <label className="flex items-start gap-3 text-xs leading-5 text-slate-500">
+                <input
+                  checked={agreedTerms}
+                  onChange={(event) => setAgreedTerms(event.target.checked)}
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                />
+                <span>
+                  我已阅读并同意
+                  <Link href="/policy" className="mx-1 font-semibold text-cyan-700 hover:text-cyan-800 hover:underline">
+                    《医疗数据保密条款》
+                  </Link>
+                  与
+                  <Link href="/policy" className="ml-1 font-semibold text-cyan-700 hover:text-cyan-800 hover:underline">
+                    《隐私政策》
+                  </Link>
+                </span>
+              </label>
 
-                <label className="flex items-start gap-3 text-xs leading-5 text-slate-500">
-                  <input
-                    checked={agreedTerms}
-                    onChange={(event) => setAgreedTerms(event.target.checked)}
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
-                  />
-                  <span>
-                    我已阅读并同意
-                    <Link href="/policy" className="mx-1 text-primary hover:underline">
-                      《医疗数据保密条款》
-                    </Link>
-                    与
-                    <Link href="/policy" className="ml-1 text-primary hover:underline">
-                      《隐私政策》
-                    </Link>
-                  </span>
-                </label>
+              {errorMessage && (
+                <p className="rounded-2xl border border-red-100 bg-red-50 px-3 py-2.5 text-sm text-red-600">
+                  {errorMessage}
+                </p>
+              )}
 
-                {errorMessage && (
-                  <p className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">
-                    {errorMessage}
-                  </p>
-                )}
+              {hintMessage && (
+                <p className="rounded-2xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700">
+                  {hintMessage}
+                </p>
+              )}
 
-                {hintMessage && (
-                  <p className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                    {hintMessage}
-                  </p>
-                )}
+              <button
+                type="submit"
+                disabled={submitting}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-cyan-600 py-3.5 text-sm font-bold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span>
+                  {isRegister
+                    ? submitting
+                      ? '注册中...'
+                      : '注册并登录'
+                    : submitting
+                      ? '登录中...'
+                      : '立即登录'}
+                </span>
+                <span className="material-symbols-outlined text-base">arrow_forward</span>
+              </button>
+            </form>
 
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3.5 text-sm font-bold text-white shadow-lg shadow-primary/30 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span>
-                    {isRegister
-                      ? submitting
-                        ? '注册中...'
-                        : '注册并登录'
-                      : submitting
-                        ? '登录中...'
-                        : '立即登录'}
-                  </span>
-                  <span className="material-symbols-outlined text-base">arrow_forward</span>
-                </button>
-              </form>
-
-              <div className="mt-6 border-t border-slate-100 pt-4 text-center text-sm text-slate-500">
-                <span>忘记密码？</span>
-                <button
-                  type="button"
-                  className="ml-2 font-semibold text-primary hover:underline"
-                  onClick={() => setHintMessage('请联系管理员重置账号密码。')}
-                >
-                  联系管理员
-                </button>
-              </div>
-
-              <div className="mt-3 text-center text-xs text-slate-400">
-                演示账号：{DEMO_USERNAME} / {DEMO_PASSWORD}
-              </div>
+            <div className="mt-5 flex items-center justify-between gap-4 border-t border-slate-100 pt-4 text-sm text-slate-500">
+              <button
+                type="button"
+                className="font-semibold text-cyan-700 transition hover:text-cyan-800 hover:underline"
+                onClick={() => setHintMessage('请联系管理员重置账号密码。')}
+              >
+                忘记密码
+              </button>
+              <Link href="/policy" className="font-semibold text-slate-600 transition hover:text-slate-900 hover:underline">
+                查看合规说明
+              </Link>
             </div>
           </div>
         </section>
       </div>
-
-      <div className="fixed bottom-5 left-1/2 z-20 w-[min(92vw,900px)] -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/70 px-5 py-2 backdrop-blur-xl">
-        <div className="flex flex-wrap items-center justify-center gap-4 text-[11px] tracking-wide text-slate-200">
-          <span className="inline-flex items-center gap-2">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-            安全状态：TLS 加密通信已开启
-          </span>
-          <span className="h-3 w-px bg-white/20" />
-          <span className="inline-flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm text-cyan-300">shield_lock</span>
-            密码哈希存储，账号信息持久化
-          </span>
-          <span className="h-3 w-px bg-white/20" />
-          <Link href="/policy" className="inline-flex items-center gap-1 text-cyan-300 hover:text-cyan-200">
-            查看合规政策
-            <span className="material-symbols-outlined text-sm">open_in_new</span>
-          </Link>
-        </div>
-      </div>
-    </div>
+    </main>
   );
 }

@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Healthcare Assistant',
-  description: 'AI-powered healthcare decision support workstation',
+  title: '都梁痛安·疼痛管理智能辅助平台',
+  description: 'Pain management decision support and training platform',
 };
 
 export default function RootLayout({

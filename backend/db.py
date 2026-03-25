@@ -188,6 +188,9 @@ def _ensure_schema(connection: psycopg.Connection) -> None:
                 department TEXT NOT NULL,
                 role TEXT NOT NULL,
                 hashed_password TEXT NOT NULL,
+                psych_profile_payload TEXT,
+                psych_profile_updated_at TIMESTAMPTZ,
+                psych_profile_version INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
             """
@@ -196,6 +199,9 @@ def _ensure_schema(connection: psycopg.Connection) -> None:
         cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS department TEXT")
         cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT")
         cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS hashed_password TEXT")
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS psych_profile_payload TEXT")
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS psych_profile_updated_at TIMESTAMPTZ")
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS psych_profile_version INTEGER NOT NULL DEFAULT 0")
         cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()")
         cursor.execute(
             """

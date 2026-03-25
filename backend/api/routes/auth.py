@@ -11,7 +11,8 @@ from core.auth import (
     create_access_token,
     require_current_username,
 )
-from repositories.users import create_user, get_user_by_username
+from repositories.users import create_user, get_user_by_username, parse_psych_profile
+from services.psych_profile_service import generate_psych_profile
 
 router = APIRouter()
 
@@ -36,6 +37,28 @@ class User(BaseModel):
     full_name: str
     department: str
     role: str
+
+
+class PsychProfileEvidence(BaseModel):
+    completed_trainings: int = 0
+    average_score: float = 0.0
+    recent_clinical_cases: int = 0
+    recent_training_samples: int = 0
+
+
+class PsychProfile(BaseModel):
+    headline: str
+    summary: str
+    traits: list[str] = Field(default_factory=list)
+    strengths: list[str] = Field(default_factory=list)
+    watchouts: list[str] = Field(default_factory=list)
+    coaching: list[str] = Field(default_factory=list)
+    evolution: str
+    confidence: str = "低"
+    generated_by: str | None = None
+    version: int = 0
+    updated_at: str | None = None
+    evidence: PsychProfileEvidence = Field(default_factory=PsychProfileEvidence)
 
 
 class RegisterRequest(BaseModel):
@@ -74,6 +97,14 @@ def _public_user(user: dict) -> User:
         department=user["department"],
         role=user["role"],
     )
+
+
+def _profile_or_generate(username: str) -> dict | None:
+    user = get_user_by_username(username)
+    profile = parse_psych_profile(user)
+    if profile:
+        return profile
+    return generate_psych_profile(username, trigger="lazy-load")
 
 
 @router.post("/login", response_model=Token)
@@ -118,3 +149,23 @@ async def register(request: RegisterRequest):
         hashed_password=hash_password(request.password),
     )
     return {"message": "Register success", "username": request.username}
+
+
+@router.get("/profile", response_model=PsychProfile)
+async def get_psych_profile(
+    current_username: str = Depends(require_current_username),
+):
+    profile = _profile_or_generate(current_username)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not available")
+    return profile
+
+
+@router.post("/profile/refresh", response_model=PsychProfile)
+async def refresh_psych_profile(
+    current_username: str = Depends(require_current_username),
+):
+    profile = generate_psych_profile(current_username, trigger="manual-refresh")
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not available")
+    return profile

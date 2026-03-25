@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+
 import LogoutButton from '@/components/LogoutButton';
 
 type PrimaryTabsNavProps = {
@@ -12,6 +13,7 @@ const NAV_ITEMS = [
   { href: '/', label: '首页' },
   { href: '/training', label: '虚拟病例训练' },
   { href: '/clinical', label: '临床决策辅助' },
+  { href: '/profile', label: '个性化心理画像' },
   { href: '/policy', label: '政策解读' },
   { href: '/doctor', label: '医生管理后台' },
 ] as const;

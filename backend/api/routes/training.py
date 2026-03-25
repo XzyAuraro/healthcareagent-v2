@@ -28,6 +28,7 @@ from repositories.training_sessions import (
 )
 
 from services.llm_service import ask_llm, get_oc_client, get_baichuan_client
+from services.psych_profile_service import queue_psych_profile_refresh
 
 router = APIRouter()
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
@@ -457,6 +458,7 @@ async def evaluate_training(
                 },
             )
 
+            queue_psych_profile_refresh(current_username, trigger="training-evaluation")
             _jobs[job_id] = {
                 "status": "done",
                 "case_id": req.case_id,
@@ -671,6 +673,7 @@ async def case_evaluate(
                 },
             )
 
+            queue_psych_profile_refresh(current_username, trigger="training-evaluation")
             _jobs[job_id] = {
                 "status": "done",
                 "case_id": req.case_id,

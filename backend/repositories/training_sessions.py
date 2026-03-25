@@ -363,3 +363,22 @@ def get_training_stats(owner_username: str) -> dict[str, Any]:
                 "case_analysis_completed_trainings": int(row.get("case_analysis_completed_trainings") or 0),
                 "average_score": round(float(row.get("average_score") or 0.0), 1),
             }
+
+
+def list_recent_training_sessions(
+    owner_username: str,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT {SESSION_COLUMNS}
+                FROM training_sessions
+                WHERE owner_username = %s
+                ORDER BY updated_at DESC
+                LIMIT %s
+                """,
+                (owner_username, limit),
+            )
+            return cursor.fetchall()
