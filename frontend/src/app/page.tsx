@@ -100,9 +100,9 @@ export default function HomePage() {
               <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/5 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
                 <span className="material-symbols-outlined text-3xl">school</span>
               </div>
-              <h3 className="mb-3 text-2xl font-bold">虚拟病例训练入口</h3>
+              <h3 className="mb-3 text-2xl font-bold">虚拟疼痛病例训练场</h3>
               <p className="mb-6 text-slate-500 dark:text-slate-400">
-                基于大语言模型的标准化病人模拟系统，支持多轮问诊、体检开单及预后推演训练。
+                基于大语言模型的标准化疼痛病人模拟系统，支持多轮问诊、体检开单及预后推演训练。
               </p>
               <div className="absolute right-8 bottom-8">
                 <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:bg-accent group-hover:text-primary transition-colors">
@@ -118,9 +118,9 @@ export default function HomePage() {
               <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
                 <span className="material-symbols-outlined text-3xl">medical_services</span>
               </div>
-              <h3 className="mb-3 text-2xl font-bold">真实病例辅助入口</h3>
+              <h3 className="mb-3 text-2xl font-bold">多模态AI辅助评估疼痛系统</h3>
               <p className="mb-6 text-slate-500 dark:text-slate-400">
-                实时临床决策支持 (CDSS)，接入电子病历 (EMR) 系统，自动匹配最新医学指南并提供危急值预警。
+                多模态AI辅助评估疼痛系统（AI-Pain-Asses），接入镇痛类药物辅助决策系统（CDSS），自动导入患者疼痛评估结果
               </p>
               <div className="flex items-center gap-2">
                 <span className="rounded bg-emerald-100 dark:bg-emerald-900/30 px-2 py-1 text-[10px] font-bold text-emerald-600">实时接入</span>
