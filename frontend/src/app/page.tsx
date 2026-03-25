@@ -54,7 +54,7 @@ export default function HomePage() {
               </div>
               <h1 className="mb-4 text-4xl font-black md:text-5xl leading-tight">欢迎使用都梁痛安平台</h1>
               <p className="text-lg text-slate-300">
-                基于 OC × 百川 三阶辩论引擎，整合 ClinPGx 药物基因组学数据库、OpenFDA 药物相互作用数据、CPIC 临床指南及 331 例真实镇痛病历，提供结构化镇痛处方辅助决策。
+                基于 OC × 百川 三阶辩论引擎，整合 ClinPGx 药物基因组学数据库、OpeFDA 药物相互作用数据、CPIC 临床指南及 331 例真实镇痛病历，提供结构化镇痛处方辅助决策（CDSS），接入电子病历系统，自动匹配最新医学指南，并提供危急值预警。
               </p>
               <div className="mt-8 flex flex-wrap gap-4">
                 <Link href="/clinical">
@@ -67,6 +67,8 @@ export default function HomePage() {
                     查看系统报表
                   </button>
                 </Link>
+                <span className="rounded bg-emerald-400/20 px-3 py-2 text-xs font-bold text-emerald-300">实时接入</span>
+                <span className="rounded bg-blue-400/20 px-3 py-2 text-xs font-bold text-blue-300">符合 HIPAA</span>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4 w-full md:w-auto">
@@ -122,10 +124,6 @@ export default function HomePage() {
               <p className="mb-6 text-slate-500 dark:text-slate-400">
                 多模态AI辅助评估疼痛系统（AI-Pain-Asses），接入镇痛类药物辅助决策系统（CDSS），自动导入患者疼痛评估结果
               </p>
-              <div className="flex items-center gap-2">
-                <span className="rounded bg-emerald-100 dark:bg-emerald-900/30 px-2 py-1 text-[10px] font-bold text-emerald-600">实时接入</span>
-                <span className="rounded bg-blue-100 dark:bg-blue-900/30 px-2 py-1 text-[10px] font-bold text-blue-600">符合 HIPAA</span>
-              </div>
               <div className="absolute right-8 bottom-8">
                 <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:bg-accent group-hover:text-primary transition-colors">
                   <span className="material-symbols-outlined">arrow_forward</span>
