@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import concurrent.futures
 import json
@@ -106,6 +107,22 @@ ROLE_CONFUSION_PATTERNS = (
     re.compile(r"(?:建议|诊断为|考虑为|处方|用药方案|鉴别诊断)"),
     re.compile(r"(?:请坐下|我需要了解|我来为你|我建议你)"),
 )
+JSON_CODE_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
+TRAILING_COMMA_PATTERN = re.compile(r",(?=\s*[}\]])")
+FULLWIDTH_JSON_TRANSLATION = str.maketrans(
+    {
+        "“": '"',
+        "”": '"',
+        "‘": '"',
+        "’": '"',
+        "：": ":",
+        "，": ",",
+        "｛": "{",
+        "｝": "}",
+        "［": "[",
+        "］": "]",
+    }
+)
 
 
 def _join_key_points(value: object) -> str:
@@ -114,6 +131,110 @@ def _join_key_points(value: object) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _extract_balanced_json_object(text: str) -> str | None:
+    start = text.find("{")
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escape = False
+
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:index + 1]
+
+    return None
+
+
+def _json_candidate_variants(candidate: str) -> list[str]:
+    base = candidate.strip().lstrip("\ufeff")
+    if not base:
+        return []
+
+    base = re.sub(r"^\s*json\s*", "", base, count=1, flags=re.IGNORECASE).strip()
+    normalized = TRAILING_COMMA_PATTERN.sub("", base.translate(FULLWIDTH_JSON_TRANSLATION))
+    python_like = normalized
+    python_like = re.sub(r"\btrue\b", "True", python_like, flags=re.IGNORECASE)
+    python_like = re.sub(r"\bfalse\b", "False", python_like, flags=re.IGNORECASE)
+    python_like = re.sub(r"\bnull\b", "None", python_like, flags=re.IGNORECASE)
+
+    return [variant for variant in (base, normalized, python_like) if variant]
+
+
+def _compact_raw_excerpt(raw: str, limit: int = 240) -> str:
+    text = re.sub(r"\s+", " ", (raw or "").strip())
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}..."
+
+
+def _parse_case_json(raw: str) -> dict:
+    text = (raw or "").strip().lstrip("\ufeff")
+    if not text:
+        raise ValueError("病例生成结果为空")
+    if text.startswith("AI 生成失败"):
+        raise ValueError(text)
+
+    candidates: list[str] = [
+        match.group(1).strip()
+        for match in JSON_CODE_BLOCK_PATTERN.finditer(text)
+    ]
+
+    balanced = _extract_balanced_json_object(text)
+    if balanced:
+        candidates.append(balanced)
+
+    candidates.append(text)
+
+    seen: set[str] = set()
+    last_error: Exception | None = None
+
+    for candidate in candidates:
+        for variant in _json_candidate_variants(candidate):
+            if variant in seen:
+                continue
+            seen.add(variant)
+
+            try:
+                parsed = json.loads(variant)
+            except json.JSONDecodeError as exc:
+                last_error = exc
+            else:
+                if isinstance(parsed, dict):
+                    return parsed
+                last_error = TypeError("病例 JSON 顶层必须是对象")
+                continue
+
+            try:
+                parsed = ast.literal_eval(variant)
+            except (SyntaxError, ValueError) as exc:
+                last_error = exc
+                continue
+
+            if isinstance(parsed, dict):
+                return parsed
+            last_error = TypeError("病例 JSON 顶层必须是对象")
+
+    raise ValueError(f"无法解析病例 JSON：{_compact_raw_excerpt(text)}") from last_error
 
 
 def _message_history(
@@ -216,10 +337,7 @@ async def generate_case(
                 max_tokens=400,
             )
 
-            m = re.search(r'\{[\s\S]*\}', raw)
-            if not m:
-                raise ValueError(f"无法解析病例 JSON：{raw}")
-            case_data = json.loads(m.group())
+            case_data = _parse_case_json(raw)
 
             case_id = str(uuid.uuid4())
             create_training_session(
@@ -520,10 +638,7 @@ async def case_generate(
                 max_tokens=600,
             )
 
-            m = re.search(r'\{[\s\S]*\}', raw)
-            if not m:
-                raise ValueError(f"无法解析病例 JSON：{raw}")
-            case_data = json.loads(m.group())
+            case_data = _parse_case_json(raw)
 
             case_id = str(uuid.uuid4())
             create_training_session(

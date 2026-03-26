@@ -4,6 +4,11 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PrimaryTabsNav from '@/components/PrimaryTabsNav';
 
+function getAuthHeaders(): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 const DIFFICULTY_LABELS: Record<string, string> = {
   beginner: '初级',
   intermediate: '中级',
@@ -41,6 +46,8 @@ export default function TrainingPage() {
         setStatsError('');
         const response = await fetch('/api/training/stats', {
           cache: 'no-store',
+          credentials: 'same-origin',
+          headers: getAuthHeaders(),
           signal: controller.signal,
         });
         if (!response.ok) {
